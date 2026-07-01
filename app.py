@@ -72,6 +72,21 @@ if uploaded_file is not None:
          st.error(f"High Risk! | Feature {feature} has a correlation of {correlation_value:.2f} with the target variable {target_col}.")
          st.caption(f"*Why this matters:* This feature strongly dictates the AI's behavior. If `{feature}` is a biased or irrelevant metric (like our Dark Mode example), the model will learn an unfair shortcut rule.")
        else:
-         st.success("No high-risk correlations found.")
+         st.success(f"**LOW RISK** | Feature: `{feature}` has a safe correlation of **{correlation_value:.2f}**.")
+    if not has_flags:
+      st.balloons()
+      st.info("No extreme correlations found. Your dataset appears to be free of hidden biases.")
+else:
+  st.info(" **Getting Started:** Upload a dataset in the sidebar to begin your audit. Don't have one? See below for instructions.")
+
+  st.markdown("""
+   ### Example Dataset Layout
+   Your CSV should have a structure like this:
+
+   | Age | Education | Experience | Hired |
+   |------|------------|-------------|--------|
+   | 25   | Bachelor   | 3           | 1      |
+   | 30   | Master     | 5           | 0      |
+   """)
 
 
