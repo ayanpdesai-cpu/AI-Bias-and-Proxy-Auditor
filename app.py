@@ -1,6 +1,10 @@
 from numpy.f2py.crackfortran import n
-import stremlit as st
+import streamlit as st
 import pandas as pd
+import streamlit_analytics2 as streamlit_analytics  
+
+
+with streamlit_analytics.track(unsafe_password="your_chosen_dashboard_password"):
 
 # page config
 st.set_page_config(
@@ -15,10 +19,10 @@ st.markdown("""
 This tool audits datasets to find ***Hidden Biases*** and ***Proxy Variables*** before they are used to train AI models. Drop a CSV file to check forr feature correlations and data anomalies.
 """)
 
-st.divider
+st.divider()
 
 # file uploader
-st.sidedbar.header("Data Input")
+st.sidebar.header("Data Input")
 uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
 
 if uploaded_file is not None:
@@ -29,7 +33,7 @@ if uploaded_file is not None:
        st.subheader("Data Preview")
        st.write(f"Number of rows: {df.shape[0]}")
        st.write(f"Number of columns: {df.shape[1]}")
-       st.dataframe(df.head(10)
+       st.dataframe(df.head(10))
 
    with col2:
          st.subheader("Configure Audit")
@@ -64,7 +68,7 @@ if uploaded_file is not None:
   else:
 
     has_flags = False
-
+    
     for feature, correlation_value in target_correlations.items():
 
        if correlation_value >= threshold:
