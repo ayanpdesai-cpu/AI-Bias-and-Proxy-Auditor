@@ -5,7 +5,7 @@ import streamlit_analytics2 as streamlit_analytics
 with streamlit_analytics.track(unsafe_password="your_chosen_dashboard_password"):
 
     st.set_page_config(
-        page_title="AI bias and Proxy Auditing",
+        page_title="AI bias and Proxy Auditingsdfsd",
         page_icon="🛡️",
         layout="wide"
     )
