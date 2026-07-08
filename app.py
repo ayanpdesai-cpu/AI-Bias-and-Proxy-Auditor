@@ -5,12 +5,12 @@ import streamlit_analytics2 as streamlit_analytics
 with streamlit_analytics.track(unsafe_password="your_chosen_dashboard_password"):
 
     st.set_page_config(
-        page_title="AI bias and Proxy Auditingsdfsd",
+        page_title="AI bias and Proxy Auditing",
         page_icon="🛡️",
         layout="wide"
     )
 
-    st.title("AI bias and Proxy Variable Auditor")
+    st.title("AI bias and Proxy Variable Auditing")
     st.markdown("""
 This tool audits datasets to find ***Hidden Biases*** and ***Proxy Variables*** before they are used to train AI models. Drop a CSV file to check for feature correlations and data anomalies.
 """)
