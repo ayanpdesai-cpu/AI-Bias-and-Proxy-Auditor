@@ -68,7 +68,7 @@ if uploaded_file is not None:
     # Isolate correlations related to the target variable
     target_correlations = corr_matrix[target_col].drop(target_col).abs()
 
-    if target_correlations.empty:
+    if target_correlations.empty:    
         st.warning("No other numeric features found to compare against the target.")
     else:
         # Loop through features and display status indicators
@@ -85,7 +85,7 @@ if uploaded_file is not None:
 
         if not has_flags:
             st.balloons()
-            st.info("🎉 No extreme proxy variables or mathematical biases flagged based on your current threshold!")
+            st.info("🎉 No extreme proxy variables or mathematical biases flagged based on your current threshold!")    
 
 else:
     # Default State when no file is uploaded
@@ -100,5 +100,5 @@ else:
     |---|---|---|
     | 95 | 1 | 1 |
     | 42 | 0 | 0 |
-    """)
+    """)    
     st.caption("💡 *Note:* The last column is your target variable (e.g., 'Approved'). The tool will flag if other columns are too closely tied to this outcome.")

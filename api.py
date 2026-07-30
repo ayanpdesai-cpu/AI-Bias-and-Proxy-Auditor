@@ -55,7 +55,7 @@ def run_audit():
 
 
 @app.route("/columns", methods=["POST"])
-def get_columns():
+def get_columns():    
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
     file = request.files["file"]
