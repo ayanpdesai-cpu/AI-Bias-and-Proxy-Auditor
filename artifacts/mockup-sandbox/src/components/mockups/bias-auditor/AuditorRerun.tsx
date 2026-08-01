@@ -60,6 +60,26 @@ function loadSample(): ParsedData {
   return { columns, rows, fileName: "hiring_data.csv", numericColumns: nc };
 }
 
+const BIAS_REASONS: Record<string, string> = {
+  zip_code:      "ZIP codes strongly correlate with race and income — they can silently encode redlining-era discrimination.",
+  zipcode:       "ZIP codes strongly correlate with race and income — they can silently encode redlining-era discrimination.",
+  gender:        "Gender is a protected attribute; including it can directly discriminate against applicants.",
+  age:           "Age is a protected attribute and can disadvantage older or younger candidates.",
+  race:          "Race is a protected attribute — using it is directly discriminatory.",
+  ethnicity:     "Ethnicity is a protected attribute — using it is directly discriminatory.",
+  uses_dark_mode:"Superficial personal preferences can act as unexpected proxies for demographic groups.",
+  dark_mode:     "Superficial personal preferences can act as unexpected proxies for demographic groups.",
+  name:          "Names can reveal ethnicity or gender and introduce cultural or demographic bias.",
+  address:       "Addresses, like ZIP codes, can proxy for race, income, or neighbourhood demographics.",
+  income:        "Income correlates with race, gender, and class — it can amplify existing societal inequalities.",
+};
+
+function getBiasReason(feature: string): string {
+  const key = feature.toLowerCase().replace(/[^a-z_]/g, "");
+  return BIAS_REASONS[key]
+    ?? `"${feature}" may carry hidden demographic signal — check whether it reflects genuine merit or encodes group membership.`;
+}
+
 function CorrelationBar({ value, risk }: { value: number; risk: "high" | "low" }) {
   return (
     <div className="flex items-center gap-3 mt-2">
@@ -372,9 +392,14 @@ export function AuditorRerun() {
                       </div>
                       <CorrelationBar value={r.corr} risk={r.risk} />
                       {r.risk === "high" && (
-                        <p className="text-xs text-red-700 mt-2.5 leading-relaxed bg-red-100 rounded-lg px-3 py-2">
-                          <span className="font-semibold">Why this matters:</span> This feature strongly dictates the AI's behavior. If <code className="font-mono">{r.name}</code> is a biased or irrelevant metric, the model will learn an unfair shortcut rule.
-                        </p>
+                        <div className="mt-2.5 space-y-1.5">
+                          <p className="text-xs text-red-700 leading-relaxed bg-red-100 rounded-lg px-3 py-2">
+                            <span className="font-semibold">Why this matters:</span> This feature strongly dictates the AI's behavior. If <code className="font-mono">{r.name}</code> is a biased or irrelevant metric, the model will learn an unfair shortcut rule.
+                          </p>
+                          <p className="text-xs text-red-800 leading-relaxed bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                            <span className="font-semibold">Why it may be biased:</span> {getBiasReason(r.name)}
+                          </p>
+                        </div>
                       )}
                     </div>
                   ))}

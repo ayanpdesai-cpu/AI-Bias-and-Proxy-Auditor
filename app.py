@@ -5,7 +5,7 @@ import streamlit_analytics2 as streamlit_analytics
 with streamlit_analytics.track(unsafe_password="your_chosen_dashboard_password"):
 
     st.set_page_config(
-        page_title="AI bias and Proxy Auditing",
+        page_title="AI bias and Proxy Auditor",
         page_icon="🛡️",
         layout="wide"
     )
@@ -64,11 +64,27 @@ This tool audits datasets to find ***Hidden Biases*** and ***Proxy Variables*** 
             else:
                 has_flags = False
 
+                BIAS_REASONS = {
+                    "zip_code":       "ZIP codes strongly correlate with race and income — they can silently encode redlining-era discrimination.",
+                    "zipcode":        "ZIP codes strongly correlate with race and income — they can silently encode redlining-era discrimination.",
+                    "gender":         "Gender is a protected attribute; including it can directly discriminate against applicants.",
+                    "age":            "Age is a protected attribute and can disadvantage older or younger candidates.",
+                    "race":           "Race is a protected attribute — using it is directly discriminatory.",
+                    "ethnicity":      "Ethnicity is a protected attribute — using it is directly discriminatory.",
+                    "uses_dark_mode": "Superficial personal preferences can act as unexpected proxies for demographic groups.",
+                    "dark_mode":      "Superficial personal preferences can act as unexpected proxies for demographic groups.",
+                    "name":           "Names can reveal ethnicity or gender and introduce cultural or demographic bias.",
+                    "address":        "Addresses, like ZIP codes, can proxy for race, income, or neighbourhood demographics.",
+                    "income":         "Income correlates with race, gender, and class — it can amplify existing societal inequalities.",
+                }
+
                 for feature, correlation_value in target_correlations.items():
                     if correlation_value >= threshold:
                         has_flags = True
                         st.error(f"High Risk! | Feature `{feature}` has a correlation of **{correlation_value:.2f}** with `{target_col}`.")
                         st.caption(f"*Why this matters:* This feature strongly dictates the AI's behavior. If `{feature}` is a biased or irrelevant metric, the model will learn an unfair shortcut rule.")
+                        bias_reason = BIAS_REASONS.get(feature.lower().replace(" ", "_"), f'`{feature}` may carry hidden demographic signal — check whether it reflects genuine merit or encodes group membership.')
+                        st.caption(f"*Why it may be biased:* {bias_reason}")
                     else:
                         st.success(f"**LOW RISK** | Feature: `{feature}` has a safe correlation of **{correlation_value:.2f}**.")
 
