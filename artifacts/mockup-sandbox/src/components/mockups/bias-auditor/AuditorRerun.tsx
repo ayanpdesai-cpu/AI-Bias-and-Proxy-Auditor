@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import {
   Shield, Upload, AlertTriangle, CheckCircle, Info,
-  X, RefreshCw, FileText, ChevronDown, Download, Play
+  X, RefreshCw, FileText, ChevronDown, Download, Play, AlertCircle
 } from "lucide-react";
 
 interface ParsedData {
@@ -80,12 +80,67 @@ function getBiasReason(feature: string): string {
     ?? `"${feature}" may carry hidden demographic signal — check whether it reflects genuine merit or encodes group membership.`;
 }
 
-function CorrelationBar({ value, risk }: { value: number; risk: "high" | "low" }) {
+// Fields that are inherently sensitive regardless of measured correlation.
+// Low correlation in one dataset does NOT make them safe to include.
+const SENSITIVE_FIELDS = new Set([
+  "gender", "sex", "age", "race", "ethnicity", "religion", "nationality",
+  "disability", "marital_status", "has_a_child", "children", "num_children",
+  "pregnant", "pregnancy", "zip_code", "zipcode", "postcode", "postal_code",
+  "name", "first_name", "last_name", "surname", "address", "income",
+  "household_income", "net_worth", "criminal_record", "arrest_history",
+]);
+
+const MEDIUM_RISK_REASONS: Record<string, string> = {
+  has_a_child:    "Parental status disproportionately impacts women and can act as a proxy for gender discrimination.",
+  children:       "Parental status disproportionately impacts women and can act as a proxy for gender discrimination.",
+  num_children:   "Parental status disproportionately impacts women and can act as a proxy for gender discrimination.",
+  marital_status: "Marital status intersects with gender and can lead to indirect discrimination against women or LGBTQ+ applicants.",
+  pregnant:       "Pregnancy status is a legally protected characteristic in many jurisdictions.",
+  pregnancy:      "Pregnancy status is a legally protected characteristic in many jurisdictions.",
+  criminal_record:"Criminal records correlate heavily with race and socioeconomic background — inclusion can encode systemic biases.",
+  arrest_history: "Arrest history (without conviction) strongly correlates with race and should almost never be used as a feature.",
+  income:         "Income correlates with race, gender, and class — even a weak measured correlation can mask compounding inequality.",
+  name:           "Names can reveal ethnicity or gender to a downstream model even if this dataset's correlation score looks low.",
+  first_name:     "First names strongly signal gender and cultural background and can introduce bias that raw correlation misses.",
+  last_name:      "Last names can signal ethnicity or national origin and can introduce bias that raw correlation misses.",
+  surname:        "Surnames can signal ethnicity or national origin and can introduce bias that raw correlation misses.",
+  zip_code:       "ZIP codes proxy for race and income. Even a low correlation here may not hold in a larger or differently sampled dataset.",
+  zipcode:        "ZIP codes proxy for race and income. Even a low correlation here may not hold in a larger or differently sampled dataset.",
+  postcode:       "Postcodes proxy for race and income. Even a low correlation here may not hold in a larger or differently sampled dataset.",
+  postal_code:    "Postal codes proxy for race and income. Even a low correlation here may not hold in a larger or differently sampled dataset.",
+  address:        "Addresses, like ZIP codes, can proxy for race, income, or neighbourhood demographics.",
+  gender:         "Gender is a legally protected attribute. Low correlation in this sample doesn't mean the model won't learn a gender shortcut.",
+  sex:            "Sex is a legally protected attribute. Low correlation in this sample doesn't mean the model won't learn a sex-based shortcut.",
+  age:            "Age is a protected attribute. Low correlation now can grow once the model encounters a broader distribution.",
+  race:           "Race is directly discriminatory regardless of measured correlation.",
+  ethnicity:      "Ethnicity is directly discriminatory regardless of measured correlation.",
+  religion:       "Religion is a protected attribute in most anti-discrimination laws.",
+  nationality:    "Nationality can proxy for race or ethnicity and is a protected characteristic in many jurisdictions.",
+  disability:     "Disability status is a legally protected attribute and its inclusion is rarely justified.",
+  household_income:"Household income correlates strongly with race and class; a low value in this sample may not generalise.",
+  net_worth:      "Net worth correlates strongly with race and class; a low value in this sample may not generalise.",
+};
+
+function getMediumRiskReason(feature: string): string {
+  const key = feature.toLowerCase().replace(/[^a-z_]/g, "");
+  return MEDIUM_RISK_REASONS[key]
+    ?? `"${feature}" is a known sensitive or protected attribute. Even a low Pearson score in this sample doesn't guarantee it won't introduce bias in production.`;
+}
+
+function isSensitive(feature: string): boolean {
+  return SENSITIVE_FIELDS.has(feature.toLowerCase().replace(/[^a-z_]/g, ""));
+}
+
+function CorrelationBar({ value, risk }: { value: number; risk: "high" | "medium" | "low" }) {
+  const barColor =
+    risk === "high"   ? "bg-gradient-to-r from-red-400 to-red-600" :
+    risk === "medium" ? "bg-gradient-to-r from-amber-400 to-orange-400" :
+                        "bg-gradient-to-r from-emerald-400 to-emerald-500";
   return (
     <div className="flex items-center gap-3 mt-2">
       <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${risk === "high" ? "bg-gradient-to-r from-red-400 to-red-600" : "bg-gradient-to-r from-emerald-400 to-emerald-500"}`}
+          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
           style={{ width: `${value * 100}%` }}
         />
       </div>
@@ -116,11 +171,14 @@ export function AuditorRerun() {
       const xs = activeData.rows.map((r) => r[name] as number);
       const ys = activeData.rows.map((r) => r[currentTarget] as number);
       const corr = pearson(xs, ys);
-      return { name, corr, risk: (corr >= threshold ? "high" : "low") as "high" | "low" };
+      const risk: "high" | "medium" | "low" =
+        corr >= threshold ? "high" : isSensitive(name) ? "medium" : "low";
+      return { name, corr, risk };
     })
     .sort((a, b) => b.corr - a.corr);
 
   const flagged = results.filter((r) => r.risk === "high");
+  const medium  = results.filter((r) => r.risk === "medium");
   const safe    = results.filter((r) => r.risk === "low");
 
   const handleRerun = () => {
@@ -291,10 +349,14 @@ export function AuditorRerun() {
           {/* Counts */}
           {numCols.length >= 2 && (
             <div className="px-4 pb-4 pt-2">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <div className="bg-red-50 border border-red-100 rounded-xl p-2.5 text-center">
                   <div className="text-2xl font-bold text-red-600">{flagged.length}</div>
-                  <div className="text-xs text-red-500 font-medium">Flagged</div>
+                  <div className="text-xs text-red-500 font-medium">High</div>
+                </div>
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-2.5 text-center">
+                  <div className="text-2xl font-bold text-amber-500">{medium.length}</div>
+                  <div className="text-xs text-amber-500 font-medium">Medium</div>
                 </div>
                 <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-2.5 text-center">
                   <div className="text-2xl font-bold text-emerald-600">{safe.length}</div>
@@ -370,7 +432,7 @@ export function AuditorRerun() {
                     </div>
                   )}
 
-                  {!running && flagged.length === 0 && results.length > 0 && (
+                  {!running && flagged.length === 0 && medium.length === 0 && results.length > 0 && (
                     <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
                       <CheckCircle className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" />
                       <div>
@@ -380,29 +442,52 @@ export function AuditorRerun() {
                     </div>
                   )}
 
-                  {!running && results.map((r) => (
-                    <div key={r.name} className={`rounded-xl border p-4 shadow-sm ${r.risk === "high" ? "bg-red-50 border-red-200" : "bg-white border-gray-200"}`}>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {r.risk === "high"
-                          ? <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700"><AlertTriangle className="w-3.5 h-3.5" /> High Risk!</span>
-                          : <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><CheckCircle className="w-3.5 h-3.5" /> LOW RISK</span>}
-                        <span className="text-xs text-gray-500">| Feature</span>
-                        <code className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${r.risk === "high" ? "bg-red-100 text-red-800" : "bg-gray-100 text-gray-800"}`}>{r.name}</code>
-                        <span className="text-xs text-gray-500">has a {r.risk === "low" ? "safe " : ""}correlation of <strong>{r.corr.toFixed(2)}</strong> with <code className="bg-indigo-50 text-indigo-700 px-1 rounded">{currentTarget}</code></span>
-                      </div>
-                      <CorrelationBar value={r.corr} risk={r.risk} />
-                      {r.risk === "high" && (
-                        <div className="mt-2.5 space-y-1.5">
-                          <p className="text-xs text-red-700 leading-relaxed bg-red-100 rounded-lg px-3 py-2">
-                            <span className="font-semibold">Why this matters:</span> This feature strongly dictates the AI's behavior. If <code className="font-mono">{r.name}</code> is a biased or irrelevant metric, the model will learn an unfair shortcut rule.
-                          </p>
-                          <p className="text-xs text-red-800 leading-relaxed bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                            <span className="font-semibold">Why it may be biased:</span> {getBiasReason(r.name)}
-                          </p>
+                  {!running && results.map((r) => {
+                    const cardBg =
+                      r.risk === "high"   ? "bg-red-50 border-red-200" :
+                      r.risk === "medium" ? "bg-amber-50 border-amber-200" :
+                                            "bg-white border-gray-200";
+                    const codeBg =
+                      r.risk === "high"   ? "bg-red-100 text-red-800" :
+                      r.risk === "medium" ? "bg-amber-100 text-amber-800" :
+                                            "bg-gray-100 text-gray-800";
+                    return (
+                      <div key={r.name} className={`rounded-xl border p-4 shadow-sm ${cardBg}`}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {r.risk === "high"   && <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700"><AlertTriangle className="w-3.5 h-3.5" /> HIGH RISK</span>}
+                          {r.risk === "medium" && <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-600"><AlertCircle className="w-3.5 h-3.5" /> MEDIUM RISK</span>}
+                          {r.risk === "low"    && <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><CheckCircle className="w-3.5 h-3.5" /> LOW RISK</span>}
+                          <span className="text-xs text-gray-500">| Feature</span>
+                          <code className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${codeBg}`}>{r.name}</code>
+                          <span className="text-xs text-gray-500">
+                            has a {r.risk === "low" ? "safe " : ""}correlation of <strong>{r.corr.toFixed(2)}</strong> with <code className="bg-indigo-50 text-indigo-700 px-1 rounded">{currentTarget}</code>
+                            {r.risk === "medium" && <span className="text-amber-600 font-medium"> — low score, but field is sensitive</span>}
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        <CorrelationBar value={r.corr} risk={r.risk} />
+                        {r.risk === "high" && (
+                          <div className="mt-2.5 space-y-1.5">
+                            <p className="text-xs text-red-700 leading-relaxed bg-red-100 rounded-lg px-3 py-2">
+                              <span className="font-semibold">Why this matters:</span> This feature strongly dictates the AI's behavior. If <code className="font-mono">{r.name}</code> is a biased or irrelevant metric, the model will learn an unfair shortcut rule.
+                            </p>
+                            <p className="text-xs text-red-800 leading-relaxed bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                              <span className="font-semibold">Why it may be biased:</span> {getBiasReason(r.name)}
+                            </p>
+                          </div>
+                        )}
+                        {r.risk === "medium" && (
+                          <div className="mt-2.5 space-y-1.5">
+                            <p className="text-xs text-amber-700 leading-relaxed bg-amber-100 rounded-lg px-3 py-2">
+                              <span className="font-semibold">Why Pearson correlation alone isn't enough:</span> A low correlation score in this sample does <em>not</em> mean the feature is safe. Sensitive attributes can introduce bias through interaction effects, distributional shift, or a different population in production.
+                            </p>
+                            <p className="text-xs text-amber-800 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                              <span className="font-semibold">Why it may be biased:</span> {getMediumRiskReason(r.name)}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
 
                   {!data && !running && (
                     <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
