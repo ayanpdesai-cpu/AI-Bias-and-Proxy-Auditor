@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import streamlit_analytics2 as streamlit_analytics
+from sklearn.feature_selection import mutual_info_regression
 
 with streamlit_analytics.track(unsafe_password="your_chosen_dashboard_password"):
 
@@ -65,56 +67,130 @@ This tool audits datasets to find ***Hidden Biases*** and ***Proxy Variables*** 
                 has_flags = False
 
                 BIAS_REASONS = {
-                    "zip_code":       "ZIP codes strongly correlate with race and income — they can silently encode redlining-era discrimination.",
-                    "zipcode":        "ZIP codes strongly correlate with race and income — they can silently encode redlining-era discrimination.",
-                    "gender":         "Gender is a protected attribute; including it can directly discriminate against applicants.",
-                    "sex":            "Sex is a legally protected attribute — a low correlation score doesn't make it safe to include.",
-                    "age":            "Age is a protected attribute and can disadvantage older or younger candidates.",
-                    "race":           "Race is a protected attribute — using it is directly discriminatory.",
-                    "ethnicity":      "Ethnicity is a protected attribute — using it is directly discriminatory.",
-                    "religion":       "Religion is a protected attribute in most anti-discrimination laws.",
-                    "nationality":    "Nationality can proxy for race or ethnicity and is protected in many jurisdictions.",
-                    "disability":     "Disability status is a legally protected attribute and its inclusion is rarely justified.",
-                    "uses_dark_mode": "Superficial personal preferences can act as unexpected proxies for demographic groups.",
-                    "dark_mode":      "Superficial personal preferences can act as unexpected proxies for demographic groups.",
-                    "name":           "Names can reveal ethnicity or gender and introduce cultural or demographic bias.",
-                    "first_name":     "First names strongly signal gender and cultural background.",
-                    "last_name":      "Last names can signal ethnicity or national origin.",
-                    "address":        "Addresses, like ZIP codes, can proxy for race, income, or neighbourhood demographics.",
-                    "income":         "Income correlates with race, gender, and class — it can amplify existing societal inequalities.",
-                    "has_a_child":    "Parental status disproportionately impacts women and can act as a proxy for gender discrimination.",
-                    "children":       "Parental status disproportionately impacts women and can act as a proxy for gender discrimination.",
-                    "marital_status": "Marital status intersects with gender and can lead to indirect discrimination.",
-                    "pregnant":       "Pregnancy status is a legally protected characteristic in many jurisdictions.",
+                    "zip_code":"ZIP codes strongly correlate with race and income — redlining-era discrimination.",
+                    "zipcode":"ZIP codes strongly correlate with race and income — redlining-era discrimination.",
+                    "gender":"Gender is a protected attribute; including it can directly discriminate against applicants.",
+                    "sex":"Sex is a legally protected attribute — a low correlation score doesn't make it safe.",
+                    "age":"Age is a protected attribute and can disadvantage older or younger candidates.",
+                    "race":"Race is a protected attribute — using it is directly discriminatory.",
+                    "ethnicity":"Ethnicity is a protected attribute — using it is directly discriminatory.",
+                    "religion":"Religion is a protected attribute in most anti-discrimination laws.",
+                    "nationality":"Nationality can proxy for race/ethnicity and is protected in many jurisdictions.",
+                    "disability":"Disability status is a legally protected attribute.",
+                    "name":"Names can reveal ethnicity or gender and introduce cultural or demographic bias.",
+                    "first_name":"First names strongly signal gender and cultural background.",
+                    "last_name":"Last names can signal ethnicity or national origin.",
+                    "address":"Addresses proxy for race, income, or neighbourhood demographics.",
+                    "income":"Income correlates with race, gender, and class — amplifying existing inequality.",
+                    "has_a_child":"Parental status disproportionately impacts women — a proxy for gender discrimination.",
+                    "has_a_kid":"Parental status disproportionately impacts women — a proxy for gender discrimination.",
+                    "has_kids":"Parental status disproportionately impacts women — a proxy for gender discrimination.",
+                    "is_parent":"Parental status disproportionately impacts women — a proxy for gender discrimination.",
+                    "children":"Parental status disproportionately impacts women — a proxy for gender discrimination.",
+                    "marital_status":"Marital status intersects with gender and can lead to indirect discrimination.",
+                    "married":"Marital status intersects with gender and can lead to indirect discrimination.",
+                    "pregnant":"Pregnancy status is a legally protected characteristic in many jurisdictions.",
                     "criminal_record":"Criminal records correlate heavily with race and socioeconomic background.",
-                    "arrest_history": "Arrest history strongly correlates with race and should almost never be used as a feature.",
+                    "arrest_history":"Arrest history strongly correlates with race — rarely justified as a feature.",
                 }
 
-                # Fields that are inherently sensitive regardless of measured correlation
+                # Fields inherently sensitive regardless of measured correlation
                 SENSITIVE_FIELDS = {
-                    "gender", "sex", "age", "race", "ethnicity", "religion", "nationality",
-                    "disability", "marital_status", "has_a_child", "children", "num_children",
-                    "pregnant", "pregnancy", "zip_code", "zipcode", "postcode", "postal_code",
-                    "name", "first_name", "last_name", "surname", "address", "income",
-                    "household_income", "net_worth", "criminal_record", "arrest_history",
+                    "gender","sex","gender_identity","male","female","is_male","is_female",
+                    "age","dob","date_of_birth","birth_year","age_group","age_band",
+                    "race","ethnicity","ethnic_group","ethnic_background",
+                    "religion","faith","denomination",
+                    "nationality","citizenship","country_of_birth","national_origin","birthplace",
+                    "disability","disabled","has_disability","health_condition","mental_health",
+                    "has_a_child","has_a_kid","has_kids","has_children","is_parent","have_children",
+                    "num_children","num_kids","children","kids","child_count","parent","parental_status",
+                    "marital_status","marital","married","is_married","divorced","widowed","single",
+                    "pregnant","pregnancy","is_pregnant",
+                    "zip_code","zipcode","zip","postcode","postal_code","area_code",
+                    "neighborhood","neighbourhood","district","borough","census_tract",
+                    "name","full_name","first_name","last_name","surname","given_name",
+                    "address","street_address","home_address",
+                    "income","household_income","annual_income","salary","net_worth","wealth",
+                    "criminal_record","criminal_history","arrest_history","felony","conviction",
+                    "weight","height","bmi",
                 }
 
-                for feature, correlation_value in target_correlations.items():
+                for feature, pearson_corr in target_correlations.items():
                     feature_key = feature.lower().replace(" ", "_")
-                    bias_reason = BIAS_REASONS.get(feature_key, f'`{feature}` may carry hidden demographic signal — check whether it reflects genuine merit or encodes group membership.')
+                    bias_reason = BIAS_REASONS.get(
+                        feature_key,
+                        f'`{feature}` may carry hidden demographic signal — check whether it reflects genuine merit or encodes group membership.'
+                    )
 
-                    if correlation_value >= threshold:
+                    # ── Signal 2: Mutual Information (non-linear bias) ─────────────
+                    try:
+                        mi_score = mutual_info_regression(
+                            df[[feature]].fillna(0), df[target_col].fillna(0), random_state=0
+                        )[0]
+                    except Exception:
+                        mi_score = 0.0
+
+                    # ── Signal 3: Group Disparity (outcome rate gap) ───────────────
+                    disparity = None
+                    try:
+                        n_unique = df[feature].nunique()
+                        if 2 <= n_unique <= 10:
+                            group_means = df.groupby(feature)[target_col].mean()
+                            if len(group_means) >= 2:
+                                disparity = float(group_means.max() - group_means.min())
+                    except Exception:
+                        pass
+
+                    # ── Determine risk using all signals ──────────────────────────
+                    triggers = []
+                    risk = "low"
+
+                    if pearson_corr >= threshold:
+                        triggers.append(f"Pearson r = {pearson_corr:.2f} — strong linear correlation (above {threshold:.2f} threshold)")
+                        risk = "high"
+                    elif pearson_corr >= threshold * 0.65:
+                        triggers.append(f"Pearson r = {pearson_corr:.2f} — moderate linear correlation")
+                        if risk == "low": risk = "medium"
+
+                    if mi_score >= 0.4:
+                        triggers.append(f"Mutual Information = {mi_score:.2f} bits — strong non-linear association missed by Pearson")
+                        if risk != "high": risk = "high"
+                    elif mi_score >= 0.1:
+                        triggers.append(f"Mutual Information = {mi_score:.2f} bits — moderate non-linear association")
+                        if risk == "low": risk = "medium"
+
+                    if disparity is not None and disparity >= 0.40:
+                        triggers.append(f"Group disparity = {disparity*100:.0f}% — large outcome rate gap between value groups")
+                        if risk != "high": risk = "high"
+                    elif disparity is not None and disparity >= 0.20:
+                        triggers.append(f"Group disparity = {disparity*100:.0f}% — notable outcome rate gap between value groups")
+                        if risk == "low": risk = "medium"
+
+                    if feature_key in SENSITIVE_FIELDS:
+                        triggers.append(f'"{feature}" is a known protected or sensitive attribute — risky regardless of correlation score')
+                        if risk == "low": risk = "medium"
+
+                    # ── Render result ─────────────────────────────────────────────
+                    signal_summary = " | ".join([
+                        f"Pearson r={pearson_corr:.2f}",
+                        f"MI={mi_score:.2f} bits",
+                        *([] if disparity is None else [f"Disparity={disparity*100:.0f}%"])
+                    ])
+
+                    if risk == "high":
                         has_flags = True
-                        st.error(f"🔴 **HIGH RISK** | Feature `{feature}` has a correlation of **{correlation_value:.2f}** with `{target_col}`.")
-                        st.caption(f"*Why this matters:* This feature strongly dictates the AI's behavior. If `{feature}` is a biased or irrelevant metric, the model will learn an unfair shortcut rule.")
+                        st.error(f"🔴 **HIGH RISK** — `{feature}` ({signal_summary})")
+                        for i, t in enumerate(triggers, 1):
+                            st.caption(f"⚑ Signal {i}: {t}")
                         st.caption(f"*Why it may be biased:* {bias_reason}")
-                    elif feature_key in SENSITIVE_FIELDS:
+                    elif risk == "medium":
                         has_flags = True
-                        st.warning(f"🟡 **MEDIUM RISK** | Feature `{feature}` has a low correlation of **{correlation_value:.2f}** with `{target_col}` — but this field is inherently sensitive.")
-                        st.caption(f"*Why Pearson correlation alone isn't enough:* A low score in this sample does **not** mean the feature is safe. Sensitive attributes can introduce bias through interaction effects, distributional shift, or a different population in production.")
+                        st.warning(f"🟡 **MEDIUM RISK** — `{feature}` ({signal_summary})")
+                        for i, t in enumerate(triggers, 1):
+                            st.caption(f"⚑ Signal {i}: {t}")
                         st.caption(f"*Why it may be biased:* {bias_reason}")
                     else:
-                        st.success(f"✅ **LOW RISK** | Feature: `{feature}` has a safe correlation of **{correlation_value:.2f}**.")
+                        st.success(f"✅ **LOW RISK** — `{feature}` ({signal_summary})")
 
                 if not has_flags:
                     st.balloons()

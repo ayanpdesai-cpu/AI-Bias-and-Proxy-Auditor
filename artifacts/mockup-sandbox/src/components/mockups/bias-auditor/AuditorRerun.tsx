@@ -44,11 +44,56 @@ function pearson(xs: number[], ys: number[]): number {
   return Math.sqrt(dx * dy) === 0 ? 0 : Math.abs(num / Math.sqrt(dx * dy));
 }
 
-const SAMPLE_CSV = `coding_score,zip_code,uses_dark_mode,years_experience,approved
+// Mutual Information in bits — detects non-linear associations Pearson misses.
+function mutualInformation(xs: number[], ys: number[]): number {
+  const n = xs.length;
+  if (n < 4) return 0;
+  const bins = Math.max(2, Math.min(6, Math.floor(Math.sqrt(n))));
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const rX = (maxX - minX) || 1, rY = (maxY - minY) || 1;
+  const joint: number[][] = Array.from({ length: bins }, () => Array(bins).fill(0));
+  const mX: number[] = Array(bins).fill(0);
+  const mY: number[] = Array(bins).fill(0);
+  for (let i = 0; i < n; i++) {
+    const bx = Math.min(Math.floor((xs[i] - minX) / rX * bins), bins - 1);
+    const by = Math.min(Math.floor((ys[i] - minY) / rY * bins), bins - 1);
+    joint[bx][by]++; mX[bx]++; mY[by]++;
+  }
+  let mi = 0;
+  for (let i = 0; i < bins; i++)
+    for (let j = 0; j < bins; j++)
+      if (joint[i][j] > 0 && mX[i] > 0 && mY[j] > 0)
+        mi += (joint[i][j] / n) * Math.log2((joint[i][j] * n) / (mX[i] * mY[j]));
+  return Math.max(0, mi);
+}
+
+// Disparity Score — for quasi-categorical features (≤10 unique values),
+// measures the max outcome rate difference between any two groups.
+// Returns null for continuous features.
+function disparityScore(xs: number[], ys: number[]): number | null {
+  const unique = [...new Set(xs)];
+  if (unique.length > 10 || unique.length < 2) return null;
+  const means = unique.map(v => {
+    const group = ys.filter((_, i) => xs[i] === v);
+    if (group.length < 2) return NaN;
+    return group.reduce((a, b) => a + b, 0) / group.length;
+  }).filter(m => !isNaN(m));
+  if (means.length < 2) return null;
+  return Math.max(...means) - Math.min(...means);
+}
+
+const MI_HIGH   = 0.4;  // bits — strong non-linear association
+const MI_MED    = 0.1;  // bits — moderate non-linear association
+const DISP_HIGH = 0.40; // 40%+ outcome rate gap between groups
+const DISP_MED  = 0.20; // 20%+ outcome rate gap between groups
+
+// Sample shows three tiers: coding_score/years_experience → HIGH, has_a_child → MEDIUM, (none low in this small set)
+const SAMPLE_CSV = `coding_score,zip_code,has_a_child,years_experience,approved
 95,10001,1,8,1
-42,90210,0,2,0
-78,10001,1,6,1
-61,30301,0,4,0
+42,90210,1,2,0
+78,10001,0,6,1
+61,30301,1,4,0
 88,10001,1,7,1
 33,90210,0,1,0
 91,10001,1,9,1
@@ -80,14 +125,43 @@ function getBiasReason(feature: string): string {
     ?? `"${feature}" may carry hidden demographic signal — check whether it reflects genuine merit or encodes group membership.`;
 }
 
-// Fields that are inherently sensitive regardless of measured correlation.
-// Low correlation in one dataset does NOT make them safe to include.
+// Fields inherently sensitive regardless of correlation score.
+// Covers many naming conventions so real-world columns are caught.
 const SENSITIVE_FIELDS = new Set([
-  "gender", "sex", "age", "race", "ethnicity", "religion", "nationality",
-  "disability", "marital_status", "has_a_child", "children", "num_children",
-  "pregnant", "pregnancy", "zip_code", "zipcode", "postcode", "postal_code",
-  "name", "first_name", "last_name", "surname", "address", "income",
-  "household_income", "net_worth", "criminal_record", "arrest_history",
+  // Gender / sex
+  "gender","sex","gender_identity","biological_sex","male","female","is_male","is_female",
+  // Age
+  "age","dob","date_of_birth","birth_date","birthdate","birth_year","year_of_birth","age_group","age_band",
+  // Race / ethnicity
+  "race","ethnicity","ethnic_group","ethnic_background","race_ethnicity","racial_group",
+  // Religion
+  "religion","faith","religious_belief","denomination",
+  // Nationality / citizenship
+  "nationality","citizenship","country_of_birth","country_of_origin","national_origin","birthplace",
+  // Disability
+  "disability","disabled","has_disability","disability_status","health_condition","mental_health",
+  // Parental / family status — many naming conventions
+  "has_a_child","has_a_kid","has_kids","has_children","is_parent","have_children","num_children",
+  "num_kids","children","kids","child_count","parent","parental_status","family_status",
+  // Marital status
+  "marital_status","marital","married","is_married","marriage_status","civil_status",
+  "divorced","widowed","single","relationship_status",
+  // Pregnancy
+  "pregnant","pregnancy","is_pregnant","expecting",
+  // Location proxies
+  "zip_code","zipcode","zip","postcode","postal_code","area_code","neighborhood","neighbourhood",
+  "district","borough","census_tract","county_fips",
+  // Name (proxy for ethnicity/gender)
+  "name","full_name","first_name","last_name","surname","family_name","given_name",
+  // Address
+  "address","street_address","home_address","residential_address",
+  // Socioeconomic
+  "income","household_income","annual_income","salary","net_worth","wealth",
+  "poverty_level","benefits","social_security","welfare",
+  // Criminal history
+  "criminal_record","criminal_history","arrest_history","felony","conviction","prior_offenses",
+  // Weight/height (can proxy gender/disability)
+  "weight","height","bmi","body_mass_index",
 ]);
 
 const MEDIUM_RISK_REASONS: Record<string, string> = {
@@ -171,9 +245,46 @@ export function AuditorRerun() {
       const xs = activeData.rows.map((r) => r[name] as number);
       const ys = activeData.rows.map((r) => r[currentTarget] as number);
       const corr = pearson(xs, ys);
-      const risk: "high" | "medium" | "low" =
-        corr >= threshold ? "high" : isSensitive(name) ? "medium" : "low";
-      return { name, corr, risk };
+      const mi   = mutualInformation(xs, ys);
+      const disp = disparityScore(xs, ys);
+
+      const triggers: string[] = [];
+      let risk: "high" | "medium" | "low" = "low";
+
+      // ── Signal 1: Pearson linear correlation ──────────────────────────
+      if (corr >= threshold) {
+        triggers.push(`Pearson r = ${corr.toFixed(2)} — strong linear correlation (above ${threshold.toFixed(2)} threshold)`);
+        risk = "high";
+      } else if (corr >= threshold * 0.65) {
+        triggers.push(`Pearson r = ${corr.toFixed(2)} — moderate linear correlation`);
+        if (risk === "low") risk = "medium";
+      }
+
+      // ── Signal 2: Mutual Information (non-linear associations) ────────
+      if (mi >= MI_HIGH) {
+        triggers.push(`Mutual Information = ${mi.toFixed(2)} bits — strong non-linear association missed by Pearson`);
+        if (risk !== "high") risk = "high";
+      } else if (mi >= MI_MED) {
+        triggers.push(`Mutual Information = ${mi.toFixed(2)} bits — moderate non-linear association`);
+        if (risk === "low") risk = "medium";
+      }
+
+      // ── Signal 3: Group Disparity (outcome rate gap between groups) ───
+      if (disp !== null && disp >= DISP_HIGH) {
+        triggers.push(`Group disparity = ${(disp * 100).toFixed(0)}% — large outcome rate gap between value groups`);
+        if (risk !== "high") risk = "high";
+      } else if (disp !== null && disp >= DISP_MED) {
+        triggers.push(`Group disparity = ${(disp * 100).toFixed(0)}% — notable outcome rate gap between value groups`);
+        if (risk === "low") risk = "medium";
+      }
+
+      // ── Signal 4: Known sensitive / protected attribute ───────────────
+      if (isSensitive(name)) {
+        triggers.push(`"${name}" is a known protected or sensitive attribute — risky regardless of correlation score`);
+        if (risk === "low") risk = "medium";
+      }
+
+      return { name, corr, mi, disp, risk, triggers };
     })
     .sort((a, b) => b.corr - a.corr);
 
@@ -451,39 +562,57 @@ export function AuditorRerun() {
                       r.risk === "high"   ? "bg-red-100 text-red-800" :
                       r.risk === "medium" ? "bg-amber-100 text-amber-800" :
                                             "bg-gray-100 text-gray-800";
+                    const signalColor =
+                      r.risk === "high"   ? "text-red-600 bg-red-50 border-red-200" :
+                      r.risk === "medium" ? "text-amber-700 bg-amber-50 border-amber-200" :
+                                            "text-gray-500 bg-gray-50 border-gray-200";
                     return (
                       <div key={r.name} className={`rounded-xl border p-4 shadow-sm ${cardBg}`}>
+                        {/* Header row */}
                         <div className="flex items-center gap-2 flex-wrap">
                           {r.risk === "high"   && <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700"><AlertTriangle className="w-3.5 h-3.5" /> HIGH RISK</span>}
                           {r.risk === "medium" && <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-600"><AlertCircle className="w-3.5 h-3.5" /> MEDIUM RISK</span>}
                           {r.risk === "low"    && <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><CheckCircle className="w-3.5 h-3.5" /> LOW RISK</span>}
-                          <span className="text-xs text-gray-500">| Feature</span>
+                          <span className="text-xs text-gray-400">|</span>
                           <code className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${codeBg}`}>{r.name}</code>
-                          <span className="text-xs text-gray-500">
-                            has a {r.risk === "low" ? "safe " : ""}correlation of <strong>{r.corr.toFixed(2)}</strong> with <code className="bg-indigo-50 text-indigo-700 px-1 rounded">{currentTarget}</code>
-                            {r.risk === "medium" && <span className="text-amber-600 font-medium"> — low score, but field is sensitive</span>}
-                          </span>
                         </div>
+
+                        {/* Score badges */}
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-mono ${signalColor}`}>
+                            Pearson r = {r.corr.toFixed(2)}
+                          </span>
+                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-mono ${r.mi >= MI_HIGH ? "text-red-600 bg-red-50 border-red-200" : r.mi >= MI_MED ? "text-amber-700 bg-amber-50 border-amber-200" : "text-gray-400 bg-gray-50 border-gray-200"}`}>
+                            MI = {r.mi.toFixed(2)} bits
+                          </span>
+                          {r.disp !== null && (
+                            <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-mono ${r.disp >= DISP_HIGH ? "text-red-600 bg-red-50 border-red-200" : r.disp >= DISP_MED ? "text-amber-700 bg-amber-50 border-amber-200" : "text-gray-400 bg-gray-50 border-gray-200"}`}>
+                              Disparity = {(r.disp * 100).toFixed(0)}%
+                            </span>
+                          )}
+                        </div>
+
                         <CorrelationBar value={r.corr} risk={r.risk} />
-                        {r.risk === "high" && (
-                          <div className="mt-2.5 space-y-1.5">
-                            <p className="text-xs text-red-700 leading-relaxed bg-red-100 rounded-lg px-3 py-2">
-                              <span className="font-semibold">Why this matters:</span> This feature strongly dictates the AI's behavior. If <code className="font-mono">{r.name}</code> is a biased or irrelevant metric, the model will learn an unfair shortcut rule.
-                            </p>
-                            <p className="text-xs text-red-800 leading-relaxed bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                              <span className="font-semibold">Why it may be biased:</span> {getBiasReason(r.name)}
-                            </p>
+
+                        {/* Triggered signals */}
+                        {r.triggers.length > 0 && (
+                          <div className="mt-2.5 space-y-1">
+                            {r.triggers.map((t, i) => (
+                              <p key={i} className={`text-xs leading-relaxed rounded-lg px-3 py-1.5 border ${signalColor}`}>
+                                <span className="font-semibold">⚑ Signal {i + 1}:</span> {t}
+                              </p>
+                            ))}
                           </div>
                         )}
-                        {r.risk === "medium" && (
-                          <div className="mt-2.5 space-y-1.5">
-                            <p className="text-xs text-amber-700 leading-relaxed bg-amber-100 rounded-lg px-3 py-2">
-                              <span className="font-semibold">Why Pearson correlation alone isn't enough:</span> A low correlation score in this sample does <em>not</em> mean the feature is safe. Sensitive attributes can introduce bias through interaction effects, distributional shift, or a different population in production.
-                            </p>
-                            <p className="text-xs text-amber-800 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                              <span className="font-semibold">Why it may be biased:</span> {getMediumRiskReason(r.name)}
-                            </p>
-                          </div>
+
+                        {/* Bias explanation */}
+                        {(r.risk === "high" || r.risk === "medium") && (
+                          <p className={`text-xs leading-relaxed rounded-lg px-3 py-2 mt-1.5 border ${
+                            r.risk === "high" ? "text-red-800 bg-red-50 border-red-200" : "text-amber-800 bg-amber-50 border-amber-200"
+                          }`}>
+                            <span className="font-semibold">Why it may be biased:</span>{" "}
+                            {r.risk === "high" ? getBiasReason(r.name) : getMediumRiskReason(r.name)}
+                          </p>
                         )}
                       </div>
                     );
