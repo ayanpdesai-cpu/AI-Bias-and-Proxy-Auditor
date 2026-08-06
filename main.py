@@ -85,7 +85,7 @@ if uploaded_file is not None:
 
         if not has_flags:
             st.balloons()
-            st.info("🎉 No extreme proxy variables or mathematical biases flagged based on your current threshold!")    
+            st.info("🎉 No extreme proxy variables or mathematical biases flagged based on your current threshold!")        
 
 else:
     # Default State when no file is uploaded
