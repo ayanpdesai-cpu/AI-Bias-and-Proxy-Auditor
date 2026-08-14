@@ -762,9 +762,11 @@ export function AuditorRerun() {
     setUploadError("");
   }, []);
 
-  const activeData   = data ?? buildData(EXAMPLE_DATASETS[0].csv, EXAMPLE_DATASETS[0].fileName);
-  const numCols      = activeData.numericColumns;
-  const currentTarget = numCols.includes(targetCol) ? targetCol : numCols[numCols.length - 1] ?? "";
+  const activeData    = data ?? buildData(EXAMPLE_DATASETS[0].csv, EXAMPLE_DATASETS[0].fileName);
+  const numCols       = activeData.numericColumns;
+  const allCols       = activeData.allFeatureColumns;
+  // Target can be ANY column (numeric or categorical — we label-encode it if needed)
+  const currentTarget = allCols.includes(targetCol) ? targetCol : allCols[allCols.length - 1] ?? "";
 
   // Analyse every column (numeric AND categorical) except the target
   const results: AuditResult[] = useMemo(() => {
@@ -933,7 +935,7 @@ export function AuditorRerun() {
             {numCols.length >= 1 && (
               <div className="space-y-5">
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1.5">Target variable <span className="text-gray-400">(numeric)</span></label>
+                  <label className="text-xs font-medium text-gray-600 block mb-1.5">Target variable</label>
                   <div className="relative">
                     <button onClick={() => setTargetOpen(o => !o)}
                       className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-mono text-gray-800 hover:border-indigo-400 transition-colors">
@@ -941,13 +943,19 @@ export function AuditorRerun() {
                       <ChevronDown className={`w-3.5 h-3.5 text-gray-400 shrink-0 ml-1 transition-transform ${targetOpen ? "rotate-180" : ""}`} />
                     </button>
                     {targetOpen && (
-                      <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
-                        {numCols.map(col => (
-                          <button key={col} onClick={() => { setTargetCol(col); setTargetOpen(false); }}
-                            className={`w-full px-3 py-2 text-left text-sm font-mono hover:bg-indigo-50 transition-colors ${col === currentTarget ? "bg-indigo-50 text-indigo-700 font-semibold" : "text-gray-700"}`}>
-                            {col}
-                          </button>
-                        ))}
+                      <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-52 overflow-y-auto">
+                        {allCols.map(col => {
+                          const isNum = numCols.includes(col);
+                          return (
+                            <button key={col} onClick={() => { setTargetCol(col); setTargetOpen(false); }}
+                              className={`w-full px-3 py-2 text-left text-xs font-mono hover:bg-indigo-50 transition-colors flex items-center justify-between gap-2 ${col === currentTarget ? "bg-indigo-50 text-indigo-700 font-semibold" : "text-gray-700"}`}>
+                              <span className="truncate">{col}</span>
+                              <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded ${isNum ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
+                                {isNum ? "num" : "cat"}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
