@@ -142,81 +142,132 @@ function disparityScore(xs: number[], ys: number[]): number | null {
   return Math.max(...means) - Math.min(...means);
 }
 
-const MI_HIGH = 0.4, MI_MED = 0.1, DISP_HIGH = 0.35, DISP_MED = 0.15;
+const MI_HIGH = 0.4, MI_MED = 0.15, DISP_HIGH = 0.35, DISP_MED = 0.15;
 
 // ── Sample datasets ────────────────────────────────────────────────────────
+// Design principles:
+//  • The PROTECTED feature (gender / race / marital_status) is the PRIMARY driver.
+//  • Legitimate merit features (coding_score, years_experience, credit_score,
+//    loan_amount, blood_pressure) are deliberately decoupled from the outcome
+//    so they score LOW — showing the bias is NOT because of merit differences.
+//  • The most compelling bias story: mediocre majority group members get approved
+//    while highly qualified minority group members get rejected.
+//  • Sensitive-named columns with low stats land at MEDIUM via the name check.
+//  • zip_code acts as a proxy (HIGH) because it happens to mirror group membership.
 const EXAMPLE_DATASETS = [
   {
     id: "hiring",
     label: "🧑‍💻 Tech Hiring",
     desc: "Hiring decisions with demographic & geographic signals",
     target: "approved",
-    fileName: "tech_hiring.csv",
+    // gender → HIGH  (M 75 % approved, F 25 % approved; 50 % disparity)
+    // zip_code → HIGH (10001 = 91 % approved, 90210 = 14 %)
+    // coding_score → LOW  (rejected females outscore approved males on average —
+    //                       the bias is in who gets hired, not in qualifications)
+    // years_experience → LOW  (>12 unique values → disparity = null; near-zero Pearson)
+    // age → MEDIUM (sensitive name; ≈ zero correlation with outcome)
+    // has_a_child → MEDIUM (sensitive name; balanced across groups)
     csv: `coding_score,zip_code,has_a_child,years_experience,gender,age,approved
-95,10001,1,8,M,32,1
-42,90210,1,2,F,27,0
-78,10001,0,6,M,35,1
-61,30301,1,4,F,29,0
-88,10001,1,7,M,41,1
-33,90210,0,1,F,24,0
-91,10001,1,9,M,38,1
-55,30301,0,3,F,31,0
-82,10001,0,7,M,36,1
-47,90210,1,2,F,26,0
-73,10001,0,5,M,33,1
-66,30301,1,5,F,34,0
-90,10001,0,10,M,45,1
-38,90210,1,1,F,23,0
-79,10001,0,6,M,37,1
-52,30301,1,3,F,28,0`,
+65,10001,0,4,M,41,1
+83,90210,0,6,F,38,0
+72,10001,1,7,M,29,1
+74,30301,1,5,F,44,0
+78,10001,0,5,M,35,1
+79,90210,0,9,F,27,0
+55,10001,0,3,M,52,1
+91,10001,0,10,F,31,1
+46,90210,1,13,M,33,0
+86,30301,0,8,F,46,0
+82,10001,0,9,M,37,1
+67,90210,1,4,F,23,0
+69,90210,1,6,M,48,1
+87,30301,0,11,F,39,1
+52,30301,0,11,M,26,0
+71,90210,0,5,F,34,0
+88,10001,0,8,M,42,1
+88,10001,1,12,F,51,0
+63,10001,0,6,M,30,1
+63,30301,0,4,F,28,0
+76,10001,0,7,M,36,1
+75,90210,1,8,F,43,0
+44,30301,0,14,M,39,0
+89,10001,1,15,F,32,1`,
   },
   {
     id: "loan",
     label: "🏦 Loan Approval",
     desc: "Loan decisions with financial and personal attributes",
     target: "loan_approved",
-    fileName: "loan_approval.csv",
+    // marital_status → HIGH  (married 87.5 % vs single 25 % approved)
+    // criminal_record → HIGH  (no record 75 % vs with record 0 % approved)
+    // credit_score → MEDIUM  (moderate gap; single people with 680+ credit still rejected)
+    // annual_income → MEDIUM  (single people earning 70 k+ still rejected = clear bias)
+    // zip_code → MEDIUM  (proxy; 10001 skews approved)
+    // loan_amount → LOW   (large amounts in both approved and rejected; near-zero Pearson)
+    // age → MEDIUM (sensitive name; ≈ zero correlation)
     csv: `credit_score,annual_income,zip_code,marital_status,criminal_record,age,loan_amount,loan_approved
-720,85000,10001,married,0,34,20000,1
-580,32000,90210,single,1,27,15000,0
-690,67000,10001,married,0,41,25000,1
-610,41000,30301,divorced,0,38,10000,0
-750,92000,10001,married,0,29,30000,1
-540,28000,90210,single,1,24,8000,0
-700,75000,10001,married,0,45,22000,1
-560,35000,30301,single,1,31,12000,0
-730,88000,10001,married,0,36,28000,1
-590,39000,90210,divorced,1,28,9000,0
-670,58000,10001,married,0,43,18000,1
-630,47000,30301,single,0,33,11000,0
-760,98000,10001,married,0,52,35000,1
-520,25000,90210,single,1,22,6000,0
-710,79000,10001,divorced,0,39,24000,1
-575,31000,30301,single,1,26,7000,0`,
+660,68000,10001,married,0,37,18000,1
+568,37000,90210,single,1,55,15000,0
+670,52000,30301,married,0,29,14000,1
+540,29000,90210,single,1,33,12000,0
+695,88000,10001,married,0,51,22000,1
+683,72000,30301,single,0,31,20000,0
+662,71000,10001,married,0,48,19000,1
+700,69000,10001,single,0,22,16000,1
+558,34000,90210,single,1,63,10000,0
+675,44000,10001,divorced,0,44,11000,1
+512,27000,30301,single,1,38,8000,0
+645,52000,10001,married,0,45,17000,1
+685,53000,90210,single,0,25,21000,0
+690,66000,30301,single,0,32,18000,1
+582,44000,90210,divorced,1,41,13000,0
+638,57000,30301,married,0,42,15000,1
+558,32000,30301,divorced,1,26,10000,0
+665,62000,10001,divorced,0,39,14000,1
+648,47000,10001,married,0,28,16000,1
+618,51000,90210,divorced,0,36,14000,0
+548,31000,90210,married,1,51,11000,0
+528,28000,90210,divorced,1,48,9000,0
+635,55000,10001,divorced,0,53,13000,1
+601,47000,30301,divorced,0,27,12000,0`,
   },
   {
     id: "hospital",
     label: "🏥 Hospital Readmission",
     desc: "Healthcare readmission with protected attributes",
     target: "readmitted",
-    fileName: "hospital_readmission.csv",
+    // race_group → HIGH  (White/Asian 25 % readmitted vs Black/Hispanic 75 %)
+    // insurance_type → HIGH  (Private 25 % vs Medicaid/None 75 %)
+    // prior_visits → HIGH  (strong proxy: underfunded care → more ER re-visits)
+    // blood_pressure → MEDIUM  (elevated in readmitted groups but ranges overlap)
+    // bmi → MEDIUM  (sensitive name + mild correlation)
+    // zip_code → MEDIUM  (geographic proxy)
+    // age → MEDIUM (sensitive name; mild correlation — readmitted are ~7 yrs older avg)
     csv: `age,bmi,blood_pressure,zip_code,race_group,insurance_type,prior_visits,readmitted
-67,28.4,135,10001,White,Private,2,0
-54,31.2,158,90210,Black,Medicaid,5,1
-72,26.8,142,10001,White,Private,1,0
-61,33.5,165,30301,Hispanic,Medicaid,4,1
-58,29.1,138,10001,White,Private,2,0
-79,35.2,172,90210,Black,None,7,1
-63,27.6,140,10001,White,Private,1,0
-45,30.8,155,30301,Hispanic,Medicaid,3,1
-70,28.9,137,10001,White,Private,2,0
-83,36.1,178,90210,Black,None,8,1
-55,29.4,143,10001,Asian,Private,1,0
-68,32.7,162,30301,Hispanic,Medicaid,5,1
-74,27.2,133,10001,White,Private,2,0
-49,34.6,168,90210,Black,Medicaid,6,1
-66,28.0,139,10001,White,Private,1,0
-77,37.3,175,30301,Hispanic,None,7,1`,
+67,28.4,132,10001,White,Private,2,0
+79,31.5,158,10001,White,Private,5,1
+72,26.8,138,10001,White,Private,1,0
+61,33.2,162,10001,White,Private,4,1
+58,29.1,135,10001,White,Private,2,0
+55,28.0,131,10001,White,Private,1,0
+74,27.2,134,10001,White,Private,2,0
+63,27.6,137,10001,White,Private,1,0
+83,36.1,172,90210,Black,Medicaid,7,1
+54,30.8,148,90210,Black,Medicaid,3,0
+68,32.7,165,90210,Black,Medicaid,5,1
+49,34.6,168,30301,Black,Medicaid,6,1
+77,37.3,162,90210,Black,None,8,1
+66,29.4,142,90210,Black,None,2,0
+71,35.8,169,90210,Black,None,6,1
+58,33.1,163,30301,Black,None,5,1
+61,33.5,166,30301,Hispanic,Medicaid,5,1
+45,30.2,143,30301,Hispanic,Medicaid,2,0
+52,31.8,158,90210,Hispanic,Medicaid,4,1
+69,35.4,171,30301,Hispanic,Medicaid,6,1
+55,23.8,128,10001,Asian,Private,1,0
+47,24.5,131,10001,Asian,Private,1,0
+73,29.8,152,10001,Asian,Private,4,1
+62,25.1,133,10001,Asian,Private,2,0`,
   },
 ] as const;
 
