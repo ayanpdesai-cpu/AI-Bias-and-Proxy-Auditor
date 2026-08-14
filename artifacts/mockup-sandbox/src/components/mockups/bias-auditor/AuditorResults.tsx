@@ -17,6 +17,7 @@ function parseCSV(text: string): { columns: string[]; rows: Record<string, numbe
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return { columns: [], rows: [] };
   const columns = lines[0].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+  console.log("CSV columns detected:", columns);
   const rows = lines.slice(1).map((line) => {
     const vals = line.split(",").map((v) => v.trim().replace(/^"|"$/g, ""));
     const row: Record<string, number | string> = {};
@@ -26,6 +27,8 @@ function parseCSV(text: string): { columns: string[]; rows: Record<string, numbe
     });
     return row;
   });
+  console.log("First row parsed:", rows[0]);
+
   return { columns, rows };
 }
 

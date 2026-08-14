@@ -1,45 +1,246 @@
-Part 1: The Setup & Page Titlepythonimport streamlit as st
-import pandas as pd
+# AI Bias & Proxy Auditor (BiasX)
 
-st.set_page_config(
-    page_title="AI Bias & Proxy Auditor",
-    page_icon="🛡️",
-    layout="wide"
-)
-Use code with caution.import streamlit as st and import pandas as pd: These bring in your core toolkits. st handles all the website buttons and visuals. pd (Pandas) handles data tables, like a super-powered version of Excel.st.set_page_config(...): This sets up the browser tab properties. layout="wide" stretches your app across the entire screen instead of keeping it in a narrow column.Part 2: The Visual Headerpythonst.title("🛡️ AI Bias & Proxy Variable Auditor")
-st.markdown("""
-This tool audits datasets to find **hidden biases**...
-""")
-st.divider()
-Use code with caution.st.title(...): Creates your main, large H1 website heading.st.markdown(...): Allows you to write text using standard Markdown formatting (like ** for bold text).st.divider(): Draws a clean horizontal line across the screen to separate your header from your data logic.Part 3: The File Uploader Sidebarpythonst.sidebar.header("📁 Data Input")
-uploaded_file = st.sidebar.file_uploader("Upload your training dataset (CSV format)", type="csv")
-Use code with caution.st.sidebar.header(...): Anything starting with st.sidebar forces that visual element into the dark grey sliding panel on the left side of the screen.st.sidebar.file_uploader(...): Creates a drag-and-drop box. type="csv" ensures users can only upload .csv files.Part 4: Managing Layout Columnspythonif uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    col1, col2 = st.columns()
-Use code with caution.if uploaded_file is not None:: This is a critical safety check. It tells Python: "Do not run any of the math code unless a user has actually uploaded a file." If this wasn't here, the app would instantly crash on startup because it would try to read an empty file.df = pd.read_csv(...): df stands for DataFrame (the standard name for a data table in Pandas). This line reads the uploaded spreadsheet and converts it into a digital matrix Python can manipulate.col1, col2 = st.columns(): Splits your screen vertically into two even columns so your app looks clean and balanced.Part 5: Column 1 - Displaying the Datapython    with col1:
-        st.subheader("📊 Dataset Preview")
-        st.write(f"Loaded **{df.shape[0]}** rows and **{df.shape[1]}** columns.")
-        st.dataframe(df.head(10)) 
-Use code with caution.with col1:: Tells Streamlit to place the following items strictly inside the left column.df.shape: Returns a pair of numbers tracking size (rows, columns). df.shape[0] counts the vertical rows, and df.shape[1] counts the horizontal headers.df.head(10): Extracts just the first 10 rows of the spreadsheet so the screen isn't overwhelmed by thousands of lines of raw text.Part 6: Column 2 - App Configuration Widgetspython    with col2:
-        st.subheader("⚙️ Configure Audit")
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-Use code with caution.df.select_dtypes(include=['number']): This filters out text columns (like names or words) and gathers columns containing numbers. You cannot run correlation math on text strings, so this safety line isolates numerical values.python        target_col = st.selectbox(
-            "Select your target/decision column...", 
-            options=numeric_cols,
-            index=len(numeric_cols)-1
-        )
-Use code with caution.st.selectbox(...): Creates a dropdown menu containing all your numeric columns. The user uses this to declare which column holds the AI's final choice (like Approved).python        threshold = st.slider(
-            "Set Risk Threshold (Correlation Coefficient):",
-            min_value=0.5, max_value=1.0, value=0.75, step=0.05
-        )
-Use code with caution.st.slider(...): Generates a sliding bar tracking values between 0.5 and 1.0. A correlation score of 1.0 means two columns match perfectly, while 0.0 means they share zero relationship.Part 7: Core Math Engine (Pearson Correlation Matrix)python    corr_matrix = df[numeric_cols].corr()
-    target_correlations = corr_matrix[target_col].drop(target_col).abs()
-Use code with caution.df[numeric_cols].corr(): This is where the heavy mathematical processing occurs. It computes a Pearson correlation coefficient matrix. It pairs every column against every other column to find out how tightly linked they are.corr_matrix[target_col]: This isolates only the scores pointing directly to your decision column (e.g., how columns correlate with Approved)..drop(target_col): Removes the decision column from checking itself (since Approved always correlates perfectly at 1.0 with Approved)..abs(): Converts negative correlations to positive values. In data bias, a strong negative correlation (e.g., a rule that systematically rejects people based on an irrelevant variable) is just as dangerous as a strong positive one.Part 8: Loop, Flag, and Displaypython    for feature, correlation_value in target_correlations.items():
-        if correlation_value >= threshold:
-            has_flags = True
-            st.error(f"🚨 **HIGH RISK** | Feature: `{feature}` has a correlation of **{correlation_value:.2f}**...")
-        else:
-            st.success(f"✅ **LOW RISK** | Feature: `{feature}` has a safe correlation...")
-Use code with caution.for feature, correlation_value in ...: A standard loop that steps through each column one by one.if correlation_value >= threshold:: Compares the mathematical correlation score against the number selected on your slider widget.st.error(...): Draws a bright red alert banner on screen if a column's correlation passes your threshold, flagging it as an AI proxy bias threat.st.success(...): Draws a clean green checkmark banner if the metric stays safely below your slider's threshold limit.Part 9: The Default App Statepythonelse:
-    st.info("💡 **Getting Started:** Upload a dataset in the sidebar...")
-Use code with caution.else:: This executes only when uploaded_file is None (the app has just booted up and is completely blank). It displays a welcoming information card explaining how to format a spreadsheet file so the user isn't left staring at an empty page.
+An interactive tool that helps identify potentially sensitive attributes and demographic proxy features in tabular datasets.
+
+# Overview
+
+AI systems can unintentionally learn patterns that disadvantage certain groups. Sometimes the problem is obvious, such as directly including a protected attribute. Other times, a seemingly ordinary feature—such as ZIP code, income, or name—may act as a proxy for demographic information.
+
+**AI Bias & Proxy Auditor** is a prototype designed to help users identify these potential risks before using a dataset to train or evaluate an AI system.
+
+The tool analyzes uploaded CSV datasets and highlights features that may warrant fairness review.
+
+## Features
+
+# Sensitive Feature Detection
+
+The auditor uses a fairness-focused knowledge base to recognize commonly sensitive or potentially problematic fields, including:
+
+* Gender
+* Race and ethnicity
+* Age
+* Religion
+* Nationality
+* Disability
+* Parental status
+* Marital status
+* Pregnancy
+* ZIP code and geographic information
+* Name and address
+* Income and wealth
+* Criminal history
+
+The tool recognizes common variations of field names where supported.
+
+### Statistical Analysis
+
+For datasets containing appropriate numerical or categorical data, the auditor can calculate statistical signals such as:
+
+* **Pearson correlation** — measures linear association between variables.
+* **Mutual Information** — measures statistical dependence between variables.
+* **Group disparity** — identifies differences in outcome rates between groups.
+
+These measurements are used as indicators for further investigation rather than proof that a feature is discriminatory.
+
+###  Risk Classification
+
+Features can be categorized into different levels of concern, such as:
+
+* **High Risk**
+* **Medium Risk**
+* **Lower Risk / Informational**
+
+Risk classifications combine statistical signals and known fairness considerations.
+
+### 💡 Explainable Findings
+
+Instead of only displaying a numerical score, the auditor explains why a feature was flagged.
+
+For example:
+
+> `zip_code` may function as a proxy for protected characteristics because geographic information can be associated with demographic and socioeconomic differences.
+
+The goal is to help users understand **why** a feature deserves further review.
+
+## Example Findings
+
+A dataset might produce findings such as:
+
+```text
+HIGH RISK
+coding_score
+
+Pearson r = 0.91
+Mutual Information = 1.00 bits
+
+Strong statistical association detected.
+Review whether the feature reflects legitimate merit
+or could contribute to disparate impact.
+```
+
+Another example:
+
+```text
+HIGH RISK
+zip_code
+
+Pearson r = 0.76
+Mutual Information = 0.31 bits
+Group Disparity = 100%
+
+ZIP code may function as a proxy for demographic
+or socioeconomic characteristics.
+```
+
+## How It Works
+
+The general analysis pipeline is:
+
+```text
+Upload CSV
+    ↓
+Parse Dataset
+    ↓
+Identify Columns
+    ↓
+Check Known Sensitive Features
+    ↓
+Run Statistical Analysis
+    ↓
+Calculate Risk Signals
+    ↓
+Generate Explanations
+    ↓
+Display Potential Bias / Proxy Findings
+```
+
+## Example Dataset Types
+
+The project can be demonstrated using datasets such as:
+
+* Hiring
+* College admissions
+* Loan approval
+* Insurance
+* Other tabular decision-making datasets
+
+Example features include:
+
+```text
+gender
+race
+age
+zip_code
+income
+years_experience
+coding_score
+has_a_child
+marital_status
+criminal_record
+```
+
+## Important Limitations
+
+This project is a **bias-auditing prototype**, not a definitive detector of discrimination.
+
+A statistical association does not necessarily mean that a feature is discriminatory. For example, years of experience may legitimately be related to a job while also being associated with age.
+
+Similarly, a feature not flagged by the tool is **not guaranteed to be fair**.
+
+The current prototype primarily relies on:
+
+1. A knowledge base of known sensitive and proxy-related features.
+2. Statistical signals available from the uploaded dataset.
+3. Rule-based explanations and risk classifications.
+
+Unknown proxy variables may not be identified by name alone. Additional statistical analysis, domain knowledge, and human review may be necessary.
+
+## Why Proxy Features Matter
+
+A model does not necessarily need a protected attribute directly to produce potentially unfair outcomes.
+
+For example:
+
+```text
+Race
+  ↓
+Neighborhood
+  ↓
+ZIP Code
+  ↓
+Model
+```
+
+A model that does not explicitly receive race may still learn patterns associated with race through other variables.
+
+This is why auditing potential proxy features can be useful when evaluating AI systems.
+
+## Technical Approach
+
+The project uses statistical methods to identify relationships between dataset features and protected or sensitive attributes.
+
+### Pearson Correlation
+
+Pearson correlation measures the strength and direction of a linear relationship.
+
+A high absolute correlation can be a signal that a feature deserves further investigation.
+
+### Mutual Information
+
+Mutual Information measures statistical dependence between variables and can capture relationships that are not necessarily linear.
+
+It should be interpreted relative to the variables and dataset rather than treated as a universal "bias score."
+
+ Group Disparity
+
+Group disparity compares outcome rates across groups.
+
+A large difference may indicate a potential fairness concern and can motivate additional investigation.
+
+Responsible Use
+
+The auditor is intended to support **human review**, not replace it.
+
+A flagged feature should be investigated in context:
+
+* Is the feature legitimately relevant?
+* How was the feature collected?
+* Could it act as a proxy for a protected characteristic?
+* Does removing it change model performance?
+* Does the model produce different outcomes across groups?
+* Are there legitimate reasons for observed differences?
+
+The tool should not be used by itself to make employment, lending, admissions, insurance, or other high-impact decisions.
+
+ Project Goals
+
+The goal of this project is to make AI fairness concepts more accessible by providing an interactive way to explore how seemingly harmless dataset features can potentially create fairness concerns.
+
+Rather than simply saying that an AI system is "biased," the auditor attempts to show **which features deserve attention and why**.
+
+Future Improvements
+
+Potential future versions could include:
+
+* Automatic proxy detection for previously unknown feature names
+* Additional fairness metrics
+* More sophisticated categorical-variable analysis
+* Model-level fairness testing
+* Fairness comparisons before and after removing a feature
+* User-defined protected attributes
+* More comprehensive domain-specific rules
+* Dataset quality checks
+* Automated audit reports
+
+
+This project is an educational prototype intended to demonstrate concepts in AI fairness, proxy detection, and responsible machine learning.
+
+A finding from this tool does not establish that a dataset, feature, model, organization, or decision-making process is discriminatory. Results should be interpreted in context and reviewed by qualified individuals.
+
+## Author
+
+Built as a student project exploring **AI fairness, responsible machine learning, and algorithmic bias detection**.
+
+---
+
+**AI Bias & Proxy Auditor — helping users ask better questions about the data behind AI.**
