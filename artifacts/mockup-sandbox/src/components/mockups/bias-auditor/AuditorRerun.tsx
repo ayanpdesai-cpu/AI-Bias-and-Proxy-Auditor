@@ -200,11 +200,11 @@ const EXAMPLE_DATASETS = [
     target: "loan_approved",
     // marital_status → HIGH  (married 87.5 % vs single 25 % approved)
     // criminal_record → HIGH  (no record 75 % vs with record 0 % approved)
-    // credit_score → MEDIUM  (moderate gap; single people with 680+ credit still rejected)
-    // annual_income → MEDIUM  (single people earning 70 k+ still rejected = clear bias)
-    // zip_code → MEDIUM  (proxy; 10001 skews approved)
-    // loan_amount → LOW   (large amounts in both approved and rejected; near-zero Pearson)
-    // age → MEDIUM (sensitive name; ≈ zero correlation)
+    // zip_code → HIGH  (strong geographic proxy: 10001 = all approved, 90210 = all rejected)
+    // credit_score → MEDIUM  (MI=0.38; married applicants approved even at 578-595 credit)
+    // annual_income → MEDIUM  (MI=0.34; mid-income rejections prevent extreme bin separation)
+    // loan_amount → MEDIUM  (MI=0.21; correlates with income tier but not deterministic)
+    // age → MEDIUM (sensitive name; ≈ zero correlation with outcome)
     csv: `credit_score,annual_income,zip_code,marital_status,criminal_record,age,loan_amount,loan_approved
 660,68000,10001,married,0,37,18000,1
 568,37000,90210,single,1,55,15000,0
@@ -216,17 +216,17 @@ const EXAMPLE_DATASETS = [
 700,69000,10001,single,0,22,16000,1
 558,34000,90210,single,1,63,10000,0
 675,44000,10001,divorced,0,44,11000,1
-512,27000,30301,single,1,38,8000,0
+512,45000,30301,single,1,38,8000,0
 645,52000,10001,married,0,45,17000,1
 685,53000,90210,single,0,25,21000,0
 690,66000,30301,single,0,32,18000,1
 582,44000,90210,divorced,1,41,13000,0
-638,57000,30301,married,0,42,15000,1
+578,57000,30301,married,0,42,15000,1
 558,32000,30301,divorced,1,26,10000,0
 665,62000,10001,divorced,0,39,14000,1
-648,47000,10001,married,0,28,16000,1
+595,47000,10001,married,0,28,16000,1
 618,51000,90210,divorced,0,36,14000,0
-548,31000,90210,married,1,51,11000,0
+548,46000,90210,married,1,51,11000,0
 528,28000,90210,divorced,1,48,9000,0
 635,55000,10001,divorced,0,53,13000,1
 601,47000,30301,divorced,0,27,12000,0`,
@@ -239,27 +239,29 @@ const EXAMPLE_DATASETS = [
     // race_group → HIGH  (White/Asian 25 % readmitted vs Black/Hispanic 75 %)
     // insurance_type → HIGH  (Private 25 % vs Medicaid/None 75 %)
     // prior_visits → HIGH  (strong proxy: underfunded care → more ER re-visits)
-    // blood_pressure → MEDIUM  (elevated in readmitted groups but ranges overlap)
-    // bmi → MEDIUM  (sensitive name + mild correlation)
-    // zip_code → MEDIUM  (geographic proxy)
-    // age → MEDIUM (sensitive name; mild correlation — readmitted are ~7 yrs older avg)
+    // zip_code → HIGH  (geographic proxy; 10001=25 % vs 30301/90210=67-80 %)
+    // blood_pressure → MEDIUM  (P=0.69, MI=0.37; ranges genuinely overlap — high BP White
+    //                           patients often not readmitted due to better follow-up care)
+    // bmi → MEDIUM  (P=0.58, MI=0.27; obese White patients not readmitted; normal-weight
+    //               Black/Medicaid patients still readmitted due to access barriers)
+    // age → MEDIUM (sensitive name; readmitted avg ~68 vs not-readmitted ~61; mild signal)
     csv: `age,bmi,blood_pressure,zip_code,race_group,insurance_type,prior_visits,readmitted
-67,28.4,132,10001,White,Private,2,0
+67,34.8,132,10001,White,Private,2,0
 79,31.5,158,10001,White,Private,5,1
 72,26.8,138,10001,White,Private,1,0
-61,33.2,162,10001,White,Private,4,1
+61,27.6,162,10001,White,Private,4,1
 58,29.1,135,10001,White,Private,2,0
-55,28.0,131,10001,White,Private,1,0
+55,28.0,162,10001,White,Private,1,0
 74,27.2,134,10001,White,Private,2,0
-63,27.6,137,10001,White,Private,1,0
+63,27.6,155,10001,White,Private,1,0
 83,36.1,172,90210,Black,Medicaid,7,1
 54,30.8,148,90210,Black,Medicaid,3,0
 68,32.7,165,90210,Black,Medicaid,5,1
-49,34.6,168,30301,Black,Medicaid,6,1
+49,26.2,142,30301,Black,Medicaid,6,1
 77,37.3,162,90210,Black,None,8,1
 66,29.4,142,90210,Black,None,2,0
 71,35.8,169,90210,Black,None,6,1
-58,33.1,163,30301,Black,None,5,1
+58,33.1,138,30301,Black,None,5,1
 61,33.5,166,30301,Hispanic,Medicaid,5,1
 45,30.2,143,30301,Hispanic,Medicaid,2,0
 52,31.8,158,90210,Hispanic,Medicaid,4,1
