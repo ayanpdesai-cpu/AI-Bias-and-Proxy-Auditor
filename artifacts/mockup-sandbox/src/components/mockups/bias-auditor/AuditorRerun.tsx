@@ -618,7 +618,7 @@ function generatePDF(fileName: string, results: AuditResult[], currentTarget: st
     doc.text(r.mi.toFixed(3),  TC[4].x + 1.5, midY);
     doc.text(r.disp != null ? `${(r.disp * 100).toFixed(1)}%` : "—", TC[5].x + 1.5, midY);
 
-    S(7, "normal", [80, 80, 80]);
+    S(7, "normarl", [80, 80, 80]);
     doc.text(sigLines, TC[6].x + 1.5, ty + 4.5);
 
     ty += rowH;
@@ -993,12 +993,6 @@ export function AuditorRerun() {
             <span className="text-base font-extrabold tracking-tight text-red-500">X</span>
           </div>
         </div>
-        <div className="h-5 w-px bg-gray-200" />
-        <button onClick={handleRerun} disabled={running}
-          className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold shadow-sm transition-all ${running ? "bg-indigo-400 text-white cursor-wait" : "bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white"}`}>
-          {running ? <><RefreshCw className="w-4 h-4 animate-spin" /> Running…</> : <><Play className="w-4 h-4 fill-white" /> Run Audit</>}
-        </button>
-        <span className="text-xs text-gray-400 hidden sm:block">Re-runs on new file or settings change</span>
         <div className="flex-1" />
         {data && (
           <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-xs font-medium text-emerald-700">
