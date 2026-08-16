@@ -159,13 +159,14 @@ const EXAMPLE_DATASETS = [
     id: "hiring",
     label: "🧑‍💻 Tech Hiring",
     desc: "Hiring decisions with demographic & geographic signals",
+    fileName: "tech_hiring.csv",
     target: "approved",
     // gender → HIGH  (M 75 % approved, F 25 % approved; 50 % disparity)
     // zip_code → HIGH (10001 = 91 % approved, 90210 = 14 %)
     // coding_score → LOW  (rejected females outscore approved males on average —
     //                       the bias is in who gets hired, not in qualifications)
     // years_experience → LOW  (>12 unique values → disparity = null; near-zero Pearson)
-    // age → MEDIUM (sensitive name; ≈ zero correlation with outcome)
+    // age → medium (sensitive name; ≈ zero correlation with outcome)
     // has_a_child → MEDIUM (sensitive name; balanced across groups)
     csv: `coding_score,zip_code,has_a_child,years_experience,gender,age,approved
 65,10001,0,4,M,41,1
@@ -197,6 +198,7 @@ const EXAMPLE_DATASETS = [
     id: "loan",
     label: "🏦 Loan Approval",
     desc: "Loan decisions with financial and personal attributes",
+    fileName: "loan_approval.csv",
     target: "loan_approved",
     // marital_status → HIGH  (married 87.5 % vs single 25 % approved)
     // criminal_record → HIGH  (no record 75 % vs with record 0 % approved)
@@ -235,6 +237,7 @@ const EXAMPLE_DATASETS = [
     id: "hospital",
     label: "🏥 Hospital Readmission",
     desc: "Healthcare readmission with protected attributes",
+    fileName: "hospital_readmission.csv",
     target: "readmitted",
     // race_group → HIGH  (White/Asian 25 % readmitted vs Black/Hispanic 75 %)
     // insurance_type → HIGH  (Private 25 % vs Medicaid/None 75 %)
