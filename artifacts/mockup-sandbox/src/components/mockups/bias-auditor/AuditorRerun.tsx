@@ -1,5 +1,5 @@
 // ── Imports (all at top) ───────────────────────────────────────────────────
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import {
   Upload, AlertTriangle, CheckCircle, Info, BookOpen,
   X, RefreshCw, FileText, ChevronDown, ChevronUp, Download,
@@ -890,7 +890,15 @@ export function AuditorRerun() {
   const [dragging, setDragging]       = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [showInfo, setShowInfo]       = useState(false);
+  const [splash, setSplash]           = useState(true);
+  const [splashFade, setSplashFade]   = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const fadeTimer  = setTimeout(() => setSplashFade(true),  1100);
+    const hideTimer  = setTimeout(() => setSplash(false),     1500);
+    return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer); };
+  }, []);
 
   // Load a preset example dataset
   const loadExample = useCallback((ex: typeof EXAMPLE_DATASETS[number]) => {
@@ -979,6 +987,36 @@ export function AuditorRerun() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-['Inter']">
+
+      {/* ── Splash screen ───────────────────────────────────────────────── */}
+      {splash && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center"
+          style={{
+            background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+            transition: "opacity 0.4s ease",
+            opacity: splashFade ? 0 : 1,
+            pointerEvents: splashFade ? "none" : "all",
+          }}
+        >
+          <div style={{ transform: splashFade ? "scale(0.95)" : "scale(1)", transition: "transform 0.4s ease" }}>
+            <BiasXLogo size={80} />
+          </div>
+          <div className="mt-5 text-center">
+            <h1 className="text-3xl font-extrabold tracking-tight" style={{ color: "#fff" }}>
+              Bias<span style={{ color: "#fca5a5" }}>X</span>
+            </h1>
+            <p className="mt-1.5 text-indigo-200 text-sm font-medium tracking-wide">AI Bias & Proxy Variable Auditor</p>
+          </div>
+          <div className="mt-8 flex gap-1.5">
+            {[0, 1, 2].map(i => (
+              <span key={i} className="w-1.5 h-1.5 rounded-full bg-white/40"
+                style={{ animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+            ))}
+          </div>
+          <style>{`@keyframes pulse { 0%,100%{opacity:.3;transform:scale(.8)} 50%{opacity:1;transform:scale(1.2)} }`}</style>
+        </div>
+      )}
 
       {/* ── Topbar ──────────────────────────────────────────────────────── */}
       <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-3 shrink-0 shadow-sm">
