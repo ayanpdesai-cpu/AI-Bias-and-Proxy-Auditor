@@ -1,0 +1,1 @@
+- [BiasX example dataset design](biasx-datasets.md) — verified risk distributions for all three example datasets; data design rules to maintain them

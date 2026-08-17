@@ -37,6 +37,19 @@ The tool recognizes common variations of field names where supported.
 For datasets containing appropriate numerical or categorical data, the auditor can calculate statistical signals such as:
 
 * **Pearson correlation** — measures linear association between variables.
+    * // Pearson correlation
+function pearson(xs: number[], ys: number[]): number {
+  const n = xs.length;
+  if (n === 0) return 0;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let num = 0, dx = 0, dy = 0;
+  for (let i = 0; i < n; i++) {
+    const ex = xs[i] - mx, ey = ys[i] - my;
+    num += ex * ey; dx += ex * ex; dy += ey * ey;
+  }
+  const denom = Math.sqrt(dx * dy);
+  return denom === 0 ? 0 : Math.abs(num / denom);
 * **Mutual Information** — measures statistical dependence between variables.
 * **Group disparity** — identifies differences in outcome rates between groups.
 

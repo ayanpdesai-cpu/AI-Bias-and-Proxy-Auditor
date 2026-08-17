@@ -3,7 +3,7 @@ import { useState, useRef, useCallback, useMemo } from "react";
 import {
   Upload, AlertTriangle, CheckCircle, Info, BookOpen,
   X, RefreshCw, FileText, ChevronDown, ChevronUp, Download,
-  Play, AlertCircle, BarChart2, FileDown, Database,
+  AlertCircle, BarChart2, FileDown, Database,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -167,32 +167,32 @@ const EXAMPLE_DATASETS = [
     //                       the bias is in who gets hired, not in qualifications)
     // years_experience → LOW  (>12 unique values → disparity = null; near-zero Pearson)
     // age → medium (sensitive name; ≈ zero correlation with outcome)
-    // has_a_child → MEDIUM (sensitive name; balanced across groups)
+    // has_a_child → HIGH  (no child 75% approved, with child 17% approved; 58% disparity)
     csv: `coding_score,zip_code,has_a_child,years_experience,gender,age,approved
-65,10001,0,4,M,41,1
-83,90210,0,6,F,38,0
-72,10001,1,7,M,29,1
-74,30301,1,5,F,44,0
+58,10001,0,4,M,41,1
 78,10001,0,5,M,35,1
-79,90210,0,9,F,27,0
 55,10001,0,3,M,52,1
-91,10001,0,10,F,31,1
-46,90210,1,13,M,33,0
-86,30301,0,8,F,46,0
 82,10001,0,9,M,37,1
-67,90210,1,4,F,23,0
-69,90210,1,6,M,48,1
-87,30301,0,11,F,39,1
-52,30301,0,11,M,26,0
-71,90210,0,5,F,34,0
 88,10001,0,8,M,42,1
-88,10001,1,12,F,51,0
-63,10001,0,6,M,30,1
-63,30301,0,4,F,28,0
 76,10001,0,7,M,36,1
-75,90210,1,8,F,43,0
-44,30301,0,14,M,39,0
-89,10001,1,15,F,32,1`,
+81,30301,0,14,M,39,0
+91,10001,0,10,F,31,1
+87,30301,0,11,F,39,1
+89,10001,0,15,F,32,1
+71,90210,0,5,F,34,0
+93,30301,0,4,F,28,0
+72,10001,1,7,M,29,1
+69,90210,1,6,M,48,1
+46,90210,1,13,M,33,0
+52,30301,1,11,M,26,0
+85,90210,1,4,M,55,0
+83,90210,1,6,F,38,0
+74,90210,1,5,F,44,0
+79,90210,1,9,F,27,0
+86,30301,1,8,F,46,0
+67,90210,1,4,F,23,0
+88,30301,1,12,F,51,0
+75,90210,1,8,F,43,0`,
   },
   {
     id: "loan",
@@ -618,7 +618,7 @@ function generatePDF(fileName: string, results: AuditResult[], currentTarget: st
     doc.text(r.mi.toFixed(3),  TC[4].x + 1.5, midY);
     doc.text(r.disp != null ? `${(r.disp * 100).toFixed(1)}%` : "—", TC[5].x + 1.5, midY);
 
-    S(7, "normarl", [80, 80, 80]);
+    S(7, "normal", [80, 80, 80]);
     doc.text(sigLines, TC[6].x + 1.5, ty + 4.5);
 
     ty += rowH;
@@ -889,8 +889,6 @@ export function AuditorRerun() {
   const [targetOpen, setTargetOpen]   = useState(false);
   const [dragging, setDragging]       = useState(false);
   const [uploadError, setUploadError] = useState("");
-  const [running, setRunning]         = useState(false);
-  const [runKey, setRunKey]           = useState(0);
   const [showInfo, setShowInfo]       = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -953,8 +951,6 @@ export function AuditorRerun() {
     }
     return out;
   }, [flagged, medium]);
-
-  const handleRerun = () => { setRunning(true); setTimeout(() => { setRunning(false); setRunKey(k => k + 1); }, 900); };
 
   const handleFile = useCallback((file: File) => {
     setUploadError("");
@@ -1130,7 +1126,7 @@ export function AuditorRerun() {
 
         {/* Main content */}
         <main className="flex-1 flex flex-col min-w-0 overflow-auto">
-          <div className="p-5 space-y-4" key={runKey}>
+          <div className="p-5 space-y-4">
 
             {/* ── Goal banner ─────────────────────────────────────────────── */}
             <div className="bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-700 rounded-2xl p-5 shadow-md">
@@ -1181,13 +1177,7 @@ export function AuditorRerun() {
               {/* ── Audit Results ──────────────────────────────────────────── */}
               {activeTab === "audit" && (
                 <div className="p-5 space-y-3">
-                  {running && (
-                    <div className="flex items-center gap-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
-                      <RefreshCw className="w-4 h-4 text-indigo-600 animate-spin" />
-                      <span className="text-sm text-indigo-700 font-medium">Running audit…</span>
-                    </div>
-                  )}
-                  {!running && flagged.length === 0 && medium.length === 0 && results.length > 0 && (
+                  {flagged.length === 0 && medium.length === 0 && results.length > 0 && (
                     <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
                       <CheckCircle className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" />
                       <div>
@@ -1196,7 +1186,7 @@ export function AuditorRerun() {
                       </div>
                     </div>
                   )}
-                  {!running && results.map(r => {
+                  {results.map(r => {
                     const cardBg   = r.risk === "high" ? "bg-red-50 border-red-200" : r.risk === "medium" ? "bg-amber-50 border-amber-200" : "bg-white border-gray-200";
                     const codeBg   = r.risk === "high" ? "bg-red-100 text-red-800" : r.risk === "medium" ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-800";
                     const sigColor = r.risk === "high" ? "text-red-600 bg-red-50 border-red-200" : r.risk === "medium" ? "text-amber-700 bg-amber-50 border-amber-200" : "text-gray-500 bg-gray-50 border-gray-200";
@@ -1234,7 +1224,7 @@ export function AuditorRerun() {
                       </div>
                     );
                   })}
-                  {results.length === 0 && !running && (
+                  {results.length === 0 && (
                     <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
                       <Info className="w-4 h-4 mt-0.5 shrink-0" />
                       <span><strong>Getting Started:</strong> Pick an example dataset from the sidebar or upload your own CSV.</span>
