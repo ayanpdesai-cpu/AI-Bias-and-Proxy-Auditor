@@ -1217,7 +1217,7 @@ export function AuditorRerun() {
                         )}
                         {(r.risk === "high" || r.risk === "medium") && (
                           <p className={`text-xs leading-relaxed rounded-lg px-3 py-2 mt-1.5 border ${r.risk === "high" ? "text-red-800 bg-red-50 border-red-200" : "text-amber-800 bg-amber-50 border-amber-200"}`}>
-                            <span className="font-semibold">Why it may be biased:</span>{" "}
+                            <span className="font-semibold">Why this feature warrants further review:</span>{" "}
                             {r.risk === "high" ? getBiasReason(r.name) : getMediumRiskReason(r.name)}
                           </p>
                         )}
