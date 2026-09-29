@@ -490,7 +490,7 @@ function generatePDF(fileName: string, results: AuditResult[], currentTarget: st
   const maxMetaW = W - hx - MR - 2;
   S(7.5, "normal", [180, 190, 220]);
   const meta1 = wrap(`Date: ${today}   |   Dataset: ${fileName}   |   Target: ${currentTarget}`, maxMetaW, 7.5);
-  const meta2 = wrap(`Pearson threshold: ${threshold.toFixed(2)}   |   Features audited: ${results.length}`, maxMetaW, 7.5);
+  const meta2 = wrap(` threshold: ${threshold.toFixed(2)}   |   Features audited: ${results.length}`, maxMetaW, 7.5);
   doc.text(meta1, hx, 34);
   doc.text(meta2, hx, 34 + meta1.length * lh(7.5) + 2);
 

@@ -21,7 +21,7 @@ interface FeatureResult {
 
 // ── CSV Parser ───────────────────────────────────────────────────────────────
 function parseCSV(text: string): { columns: string[]; rows: Record<string, string | number>[] } {
-  const lines = text.trim().split(/\r?\n/);
+  const lines = text.trim().split(/\r?\n/); 
   if (lines.length < 2) return { columns: [], rows: [] };
   const columns = lines[0].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
   const rows = lines.slice(1).map((line) => {

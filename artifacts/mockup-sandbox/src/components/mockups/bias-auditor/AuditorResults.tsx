@@ -39,7 +39,7 @@ function numericCols(columns: string[], rows: Record<string, number | string>[])
 function pearson(xs: number[], ys: number[]): number {
   const n = xs.length;
   if (n === 0) return 0;
-  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const mx = xs.reduce((a, b) => a + b, 0) / n; 
   const my = ys.reduce((a, b) => a + b, 0) / n;
   let num = 0, dx = 0, dy = 0;
   for (let i = 0; i < n; i++) {
