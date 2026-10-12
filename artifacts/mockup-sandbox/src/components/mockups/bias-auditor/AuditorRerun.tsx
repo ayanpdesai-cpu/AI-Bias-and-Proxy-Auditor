@@ -57,29 +57,13 @@ interface AuditResult {
 function parseCSV(text: string): { columns: string[]; rows: Record<string, number | string>[] } {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return { columns: [], rows: [] };
-  const splitCsvLine = (line: string) => {
-    const cells: string[] = [];
-    let value = "", quoted = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"' && line[i + 1] === '"' && quoted) { value += '"'; i++; }
-      else if (char === '"') quoted = !quoted;
-      else if (char === "," && !quoted) { cells.push(value.trim()); value = ""; }
-      else value += char;
-    }
-    cells.push(value.trim());
-    return cells;
-  };
-  const columns = splitCsvLine(lines[0]);
+  const columns = lines[0].split(",").map(c => c.trim().replace(/^"|"$/g, ""));
   const rows = lines.slice(1).filter(l => l.trim()).map(line => {
-    const vals = splitCsvLine(line);
+    const vals = line.split(",").map(v => v.trim().replace(/^"|"$/g, ""));
     const row: Record<string, number | string> = {};
     columns.forEach((col, i) => {
-      const raw = vals[i] ?? "";
-      const n = Number(raw);
-      // Preserve leading-zero identifiers such as postal codes instead of
-      // silently converting "00501" into the number 501.
-      row[col] = /^0\d+$/.test(raw) ? raw : raw === "" || !Number.isFinite(n) ? raw : n;
+      const n = parseFloat(vals[i] ?? "");
+      row[col] = isNaN(n) ? (vals[i] ?? "") : n;
     });
     return row;
   });
@@ -97,30 +81,25 @@ function inferColumnTypes(columns: string[], rows: Record<string, number | strin
       uniqueCount <= 2 ||
       (uniqueCount <= 12 && values.length >= 20 && uniqueCount / values.length <= 0.25)
     );
-    const tokenizedName = col.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
-    const compactName = tokenizedName.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const namedCategory = CATEGORICAL_NAME_HINT.test(tokenizedName) ||
-      /(?:id|key|code|zipcode|postalcode|phone|ssn)$/.test(compactName);
+    const namedCategory = CATEGORICAL_NAME_HINT.test(col);
     return [col, allNumeric && !namedCategory && !lowCardinalityNumeric ? "numeric" : "categorical"];
   }));
 }
 
-// Keep quantitative values numeric; map categories (including numeric-coded
-// categories such as 0/1, ZIP codes, and enum values) to stable category IDs.
+// Label-encode a column: string values → integers; numeric values stay as-is.
+// Returns { nums, encoded: true if any string values were found }
 function encodeColumn(col: string, rows: Record<string, number | string>[], categorical = false): { nums: number[]; encoded: boolean } {
   const vals = rows.map(r => r[col]);
-  if (!categorical) {
-    return { nums: vals.map(v => v === "" || v == null ? NaN : Number(v)), encoded: false };
-  }
+  const hasStrings = vals.some(v => typeof v === "string");
+  if (!hasStrings && !categorical) return { nums: vals as number[], encoded: false };
   // Build label map
   const labels = new Map<string, number>();
   let idx = 0;
   vals.forEach(v => {
-    if (v === "" || v == null) return;
     const key = String(v).toLowerCase().trim();
     if (!labels.has(key)) labels.set(key, idx++);
   });
-  return { nums: vals.map(v => v === "" || v == null ? NaN : labels.get(String(v).toLowerCase().trim()) ?? NaN), encoded: true };
+  return { nums: vals.map(v => labels.get(String(v).toLowerCase().trim()) ?? 0), encoded: true };
 }
 
 function buildData(csv: string, fileName: string): ParsedData {
@@ -651,13 +630,13 @@ function generatePDF(fileName: string, results: AuditResult[], currentTarget: st
     doc.text(nameStr, TC[0].x + 1.5, midY);
 
     S(7, "normal", [120, 130, 150]);
-    doc.text(r.isEncoded ? "cat." : "numeric", TC[1].x + 1.5, midY);
+    doc.text(r.isEncoded ? "categ." : "numeric", TC[1].x + 1.5, midY);
 
     S(7.5, "bold", fg);
     doc.text(r.risk === "high" ? "HIGH" : r.risk === "medium" ? "MED" : "LOW", TC[2].x + 1.5, midY);
 
     S(7.5, "normal", [70, 70, 70]);
-    doc.text(r.pearsonApplicable ? r.corr.toFixed(3) : "N/A", TC[3].x + 1.5, midY);
+    doc.text(r.corr.toFixed(3), TC[3].x + 1.5, midY);
     doc.text(r.mi.toFixed(3),  TC[4].x + 1.5, midY);
     doc.text(r.disp != null ? `${(r.disp * 100).toFixed(1)}%` : "—", TC[5].x + 1.5, midY);
 
@@ -682,7 +661,7 @@ function generatePDF(fileName: string, results: AuditResult[], currentTarget: st
     hfg: [number,number,number], bfg: [number,number,number],
   ) => {
     const hdrLines  = wrap(
-      `${r.name}   |   Pearson r = ${r.pearsonApplicable ? r.corr.toFixed(3) : "N/A (nominal)"}   |   MI = ${r.mi.toFixed(3)} bits`,
+      `${r.name}   |   Pearson r = ${r.corr.toFixed(3)}   |   MI = ${r.mi.toFixed(3)} bits`,
       CW - 14, 9, "bold",
     );
     const bodyLines = wrap(bodyText, CW - 14, 8.5);
@@ -817,97 +796,43 @@ function ProxyInfoBanner({ open, onToggle }: { open: boolean; onToggle: () => vo
 
 // ── Correlation Heatmap ────────────────────────────────────────────────────
 function CorrelationHeatmap({ data, cols }: { data: ParsedData; cols: string[] }) {
-  const columns = useMemo(() => [...new Set(cols)].filter(col => data.columns.includes(col)), [cols, data]);
-  const matrix = useMemo(() => {
-    const encoded = Object.fromEntries(columns.map(col => {
-      const categorical = data.columnTypes[col] === "categorical";
-      return [col, { ...encodeColumn(col, data.rows, categorical), categorical }];
-    }));
+  const numericOnly = useMemo(() => cols.filter(c => data.numericColumns.includes(c)), [cols, data]);
+  const matrix = useMemo(() =>
+    numericOnly.map(colA =>
+      numericOnly.map(colB => {
+        if (colA === colB) return 1;
+        const xs = data.rows.map(r => r[colA] as number);
+        const ys = data.rows.map(r => r[colB] as number);
+        return pearson(xs, ys);
+      })
+    ), [data, numericOnly]);
 
-    const normalizedMutualInfo = (xs: number[], ys: number[], discreteX: boolean, discreteY: boolean) => {
-      const bins = Math.max(2, Math.min(8, Math.floor(Math.sqrt(xs.length))));
-      const bin = (values: number[]) => {
-        let min = Infinity, max = -Infinity;
-        values.forEach(value => { min = Math.min(min, value); max = Math.max(max, value); });
-        const range = max - min || 1;
-        return values.map(value => Math.min(Math.floor(((value - min) / range) * bins), bins - 1));
-      };
-      const xValues = discreteX ? xs : bin(xs);
-      const yValues = discreteY ? ys : bin(ys);
-      const xCounts = new Map<number, number>(), yCounts = new Map<number, number>();
-      const joint = new Map<string, { x: number; y: number; count: number }>();
-      xValues.forEach((x, i) => {
-        const y = yValues[i], key = `${x}\u0000${y}`;
-        xCounts.set(x, (xCounts.get(x) ?? 0) + 1);
-        yCounts.set(y, (yCounts.get(y) ?? 0) + 1);
-        const pair = joint.get(key);
-        if (pair) pair.count++;
-        else joint.set(key, { x, y, count: 1 });
-      });
-      const entropy = (counts: Map<number, number>) => [...counts.values()].reduce((sum, count) => {
-        const p = count / xs.length;
-        return sum - p * Math.log2(p);
-      }, 0);
-      let mi = 0;
-      joint.forEach(({ x, y, count }) => {
-        const p = count / xs.length;
-        mi += p * Math.log2((count * xs.length) / ((xCounts.get(x) ?? 1) * (yCounts.get(y) ?? 1)));
-      });
-      const maxEntropy = Math.max(entropy(xCounts), entropy(yCounts));
-      return maxEntropy > 0 ? Math.max(0, Math.min(1, mi / maxEntropy)) : 0;
-    };
-
-    return columns.map(colA => columns.map(colB => {
-      if (colA === colB) return { value: 1, method: "Self" };
-      const a = encoded[colA], b = encoded[colB];
-      const pairs = a.nums.map((x, i) => [x, b.nums[i]] as const)
-        .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
-      const xs = pairs.map(([x]) => x);
-      const ys = pairs.map(([, y]) => y);
-      const pearsonApplicable =
-        (!a.categorical || new Set(xs).size === 2) &&
-        (!b.categorical || new Set(ys).size === 2);
-      if (pearsonApplicable) return { value: pearson(xs, ys), method: "Pearson r" };
-
-      // Nominal categories have no meaningful numeric order. Show normalized
-      // mutual information instead, discretizing quantitative values as needed.
-      return { value: normalizedMutualInfo(xs, ys, a.categorical, b.categorical), method: "Normalized MI" };
-    }));
-  }, [columns, data]);
-
-  if (columns.length < 2) {
-    return <p className="text-xs text-gray-400">Heatmap requires at least 2 dataset columns.</p>;
+  if (numericOnly.length < 2) {
+    return <p className="text-xs text-gray-400">Heatmap requires at least 2 numeric columns.</p>;
   }
 
-  const cellSz = Math.min(66, Math.max(34, Math.floor(640 / Math.max(columns.length, 1))));
-  const labelW = Math.max(88, Math.min(140, cellSz * 2));
+  const cellSz = Math.min(66, Math.max(38, Math.floor(500 / Math.max(numericOnly.length, 1))));
+  const labelW = 84;
   return (
     <div>
-      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-0.5">
-        <h3 className="text-sm font-bold text-gray-800">Feature Association Heatmap</h3>
-        <span className="text-xs text-gray-400">{columns.length} of {data.columns.length} dataset columns</span>
-      </div>
-      <p className="text-xs text-gray-500 mb-3">All numeric and categorical columns. Numeric pairs and binary categories use absolute Pearson r; nominal categories use normalized mutual information. Darker red = stronger association.</p>
+      <h3 className="text-sm font-bold text-gray-800 mb-0.5">Correlation Heatmap</h3>
+      <p className="text-xs text-gray-500 mb-3">Pearson correlation between every pair of numeric features. Darker red = stronger correlation. Indigo diagonal = self (always 1.0).</p>
       <div className="overflow-auto">
         <div className="inline-flex flex-col">
           <div className="flex" style={{ marginLeft: labelW }}>
-            {columns.map(col => (
-              <div key={col} style={{ width: cellSz, minWidth: cellSz }} className="flex items-end justify-center px-0.5">
-                <span className="text-[10px] text-gray-500 block truncate" title={`${col} · ${data.columnTypes[col]}`}>
-                  {col.slice(0, 8)}
-                </span>
+            {numericOnly.map(col => (
+              <div key={col} style={{ width: cellSz, minWidth: cellSz }} className="text-center px-0.5">
+                <span className="text-xs text-gray-500 block truncate" title={col}>{col.slice(0, 8)}</span>
               </div>
             ))}
           </div>
           {matrix.map((row, i) => (
-            <div key={columns[i]} className="flex items-center">
-              <div style={{ width: labelW, minWidth: labelW }} className="text-[10px] text-gray-600 truncate pr-2 text-right shrink-0" title={`${columns[i]} · ${data.columnTypes[columns[i]]}`}>
-                {columns[i]}
-              </div>
-              {row.map(({ value, method }, j) => (
-                <div key={j} style={{ width: cellSz, height: cellSz, minWidth: cellSz, backgroundColor: i === j ? "#4f46e5" : corrToColor(value), border: "1px solid #e5e7eb" }}
-                  className="flex items-center justify-center cursor-default" title={`${columns[i]} × ${columns[j]} · ${method}: ${value.toFixed(3)}`}>
-                  <span style={{ color: (i === j || value > 0.55) ? "#fff" : "#374151", fontSize: cellSz < 46 ? "9px" : "11px" }} className="font-mono font-bold">{value.toFixed(2)}</span>
+            <div key={numericOnly[i]} className="flex items-center">
+              <div style={{ width: labelW, minWidth: labelW }} className="text-xs text-gray-600 truncate pr-2 text-right shrink-0" title={numericOnly[i]}>{numericOnly[i].slice(0, 11)}</div>
+              {row.map((val, j) => (
+                <div key={j} style={{ width: cellSz, height: cellSz, minWidth: cellSz, backgroundColor: i === j ? "#4f46e5" : corrToColor(val), border: "1px solid #e5e7eb" }}
+                  className="flex items-center justify-center cursor-default" title={`${numericOnly[i]} × ${numericOnly[j]}: ${val.toFixed(3)}`}>
+                  <span style={{ color: (i === j || val > 0.55) ? "#fff" : "#374151", fontSize: cellSz < 46 ? "9px" : "11px" }} className="font-mono font-bold">{val.toFixed(2)}</span>
                 </div>
               ))}
             </div>
@@ -920,7 +845,7 @@ function CorrelationHeatmap({ data, cols }: { data: ParsedData; cols: string[] }
           </div>
           <span className="text-xs text-gray-400">High</span>
           <div className="w-5 h-3 rounded ml-4" style={{ backgroundColor: "#4f46e5" }} />
-          <span className="text-xs text-gray-400">Self association (diagonal)</span>
+          <span className="text-xs text-gray-400">Self (diagonal)</span>
         </div>
       </div>
     </div>
@@ -931,7 +856,7 @@ function CorrelationHeatmap({ data, cols }: { data: ParsedData; cols: string[] }
 function FeatureRiskChart({ results, currentTarget }: { results: AuditResult[]; currentTarget: string }) {
   const data = results.map(r => ({
     name: r.name,
-    "Pearson r": r.pearsonApplicable ? parseFloat(r.corr.toFixed(3)) : null,
+    "Pearson r": parseFloat(r.corr.toFixed(3)),
     "MI (bits)": parseFloat(Math.min(r.mi, 1).toFixed(3)),
     "Disparity": r.disp != null ? parseFloat(r.disp.toFixed(3)) : 0,
     risk: r.risk,
@@ -980,7 +905,6 @@ function FeatureRiskChart({ results, currentTarget }: { results: AuditResult[]; 
 // ── Main component ─────────────────────────────────────────────────────────
 export function AuditorRerun() {
   const [data, setData]               = useState<ParsedData | null>(null);
-  const [recentUploads, setRecentUploads] = useState<ParsedData[]>([]);
   const [targetCol, setTargetCol]     = useState("approved");
   const [threshold, setThreshold]     = useState(0.75);
   const [activeTab, setActiveTab]     = useState<"audit" | "viz" | "report" | "preview">("audit");
@@ -993,8 +917,8 @@ export function AuditorRerun() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const fadeTimer  = setTimeout(() => setSplashFade(true),  700);
-    const hideTimer  = setTimeout(() => setSplash(false),     1000);
+    const fadeTimer  = setTimeout(() => setSplashFade(true),  1100);
+    const hideTimer  = setTimeout(() => setSplash(false),     1500);
     return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer); };
   }, []);
 
@@ -1005,71 +929,36 @@ export function AuditorRerun() {
     setTargetCol(ex.target);
     setUploadError("");
   }, []);
-  const loadUploadedDataset = useCallback((uploaded: ParsedData) => {
-    setData(uploaded);
-    setTargetCol(uploaded.columns[uploaded.columns.length - 1] ?? "");
-    setUploadError("");
-  }, []);
 
   const activeData    = data ?? buildData(EXAMPLE_DATASETS[0].csv, EXAMPLE_DATASETS[0].fileName);
   const numCols       = activeData.numericColumns;
   const allCols       = activeData.allFeatureColumns;
-  const toggleColumnType = useCallback((col: string) => {
-    const base = data ?? activeData;
-    const nextType = base.columnTypes[col] === "numeric" ? "categorical" : "numeric";
-    const values = base.rows.map(row => row[col]).filter(value => value !== "" && value != null);
-    if (nextType === "numeric" && !values.every(value => Number.isFinite(Number(value)))) {
-      setUploadError(`"${col}" contains non-numeric values and cannot be analyzed as a numeric feature.`);
-      return;
-    }
-    const columnTypes = { ...base.columnTypes, [col]: nextType };
-    const updatedData = {
-      ...base,
-      columnTypes,
-      numericColumns: base.columns.filter(name => columnTypes[name] === "numeric"),
-    };
-    setData(updatedData);
-    setRecentUploads(previous => previous.map(item => item.fileName === base.fileName ? updatedData : item));
-    setUploadError("");
-  }, [activeData, data]);
   // Target can be ANY column (numeric or categorical — we label-encode it if needed)
   const currentTarget = allCols.includes(targetCol) ? targetCol : allCols[allCols.length - 1] ?? "";
 
   // Analyse every column (numeric AND categorical) except the target
   const results: AuditResult[] = useMemo(() => {
     if (!currentTarget) return [];
-    const targetIsCategorical = activeData.columnTypes[currentTarget] === "categorical";
-    const targetNumsAll = encodeColumn(currentTarget, activeData.rows, targetIsCategorical).nums;
+    const targetNums = encodeColumn(currentTarget, activeData.rows).nums;
     return activeData.allFeatureColumns
       .filter(c => c !== currentTarget)
       .map(name => {
-        const isCategorical = activeData.columnTypes[name] === "categorical";
-        const featureNumsAll = encodeColumn(name, activeData.rows, isCategorical).nums;
-        const pairs = featureNumsAll.map((x, i) => [x, targetNumsAll[i]] as const)
-          .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
-        const xs = pairs.map(([x]) => x);
-        const targetNums = pairs.map(([, y]) => y);
-        // Pearson is valid for quantitative values and for two-class data
-        // (point-biserial / phi correlation). Do not apply it to nominal
-        // categories with 3+ labels, where label-encoding invents an order.
-        const pearsonApplicable =
-          (!isCategorical || new Set(xs).size === 2) &&
-          (!targetIsCategorical || new Set(targetNums).size === 2);
-        const corr = pearsonApplicable ? pearson(xs, targetNums) : 0;
-        const mi   = mutualInformation(xs, targetNums, isCategorical, targetIsCategorical);
-        const disp = new Set(targetNums).size === 2 ? disparityScore(xs, targetNums) : null;
+        const { nums: xs, encoded } = encodeColumn(name, activeData.rows);
+        const corr = pearson(xs, targetNums);
+        const mi   = mutualInformation(xs, targetNums);
+        const disp = disparityScore(xs, targetNums);
         const triggers: string[] = [];
         let risk: "high" | "medium" | "low" = "low";
 
-        if (pearsonApplicable && corr >= threshold)              { triggers.push(`Pearson r = ${corr.toFixed(3)} — strong linear correlation (above ${threshold.toFixed(2)} threshold)`); risk = "high"; }
-        else if (pearsonApplicable && corr >= threshold * 0.65)  { triggers.push(`Pearson r = ${corr.toFixed(3)} — moderate linear correlation`); if (risk === "low") risk = "medium"; }
+        if (corr >= threshold)              { triggers.push(`Pearson r = ${corr.toFixed(3)} — strong linear correlation (above ${threshold.toFixed(2)} threshold)`); risk = "high"; }
+        else if (corr >= threshold * 0.65)  { triggers.push(`Pearson r = ${corr.toFixed(3)} — moderate linear correlation`); if (risk === "low") risk = "medium"; }
         if (mi >= MI_HIGH)                  { triggers.push(`Mutual Information = ${mi.toFixed(3)} bits — strong non-linear association`); if (risk !== "high") risk = "high"; }
         else if (mi >= MI_MED)              { triggers.push(`Mutual Information = ${mi.toFixed(3)} bits — moderate non-linear association`); if (risk === "low") risk = "medium"; }
         if (disp !== null && disp >= DISP_HIGH)  { triggers.push(`Group disparity = ${(disp * 100).toFixed(1)}% — large outcome rate gap between groups`); if (risk !== "high") risk = "high"; }
         else if (disp !== null && disp >= DISP_MED) { triggers.push(`Group disparity = ${(disp * 100).toFixed(1)}% — notable outcome rate gap between groups`); if (risk === "low") risk = "medium"; }
         if (isSensitive(name))              { triggers.push(`"${name}" matches a known sensitive or protected attribute`); if (risk === "low") risk = "medium"; }
 
-        return { name, corr, mi, disp, risk, triggers, isEncoded: isCategorical, pearsonApplicable };
+        return { name, corr, mi, disp, risk, triggers, isEncoded: encoded };
       })
       .sort((a, b) => {
         const rOrder = { high: 2, medium: 1, low: 0 };
@@ -1083,7 +972,7 @@ export function AuditorRerun() {
 
   const recs = useMemo(() => {
     const out: string[] = [];
-    flagged.forEach(r => out.push(`Review "${r.name}" — strong association detected${r.pearsonApplicable ? ` (r=${r.corr.toFixed(2)})` : ` (MI=${r.mi.toFixed(2)} bits)`}.`));
+    flagged.forEach(r => out.push(`Remove or replace "${r.name}" — strong bias signal detected (r=${r.corr.toFixed(2)}).`));
     medium.forEach(r => out.push(`Review "${r.name}" — sensitive or protected attribute. Evaluate whether it is strictly necessary.`));
     if (flagged.length > 0 || medium.length > 0) {
       out.push("Run demographic parity and equalized odds checks before deploying any model trained on this data.");
@@ -1095,14 +984,13 @@ export function AuditorRerun() {
 
   const handleFile = useCallback((file: File) => {
     setUploadError("");
-      if (!file.name.toLowerCase().endsWith(".csv")) { setUploadError("Only CSV files are supported."); return; }
+    if (!file.name.endsWith(".csv")) { setUploadError("Only CSV files are supported."); return; }
     const reader = new FileReader();
     reader.onload = (e) => {
       const d = buildData(e.target?.result as string, file.name);
-        if (d.columns.length < 2 || d.rows.length === 0) { setUploadError("The CSV needs a header, at least one data row, and two or more columns."); return; }
+      if (d.numericColumns.length < 1) { setUploadError("Need at least 1 numeric column to use as target."); return; }
       setData(d);
-        setRecentUploads(previous => [d, ...previous.filter(item => item.fileName !== d.fileName)].slice(0, 5));
-        setTargetCol(d.columns[d.columns.length - 1]);
+      setTargetCol(d.numericColumns[d.numericColumns.length - 1]);
     };
     reader.readAsText(file);
   }, []);
@@ -1212,7 +1100,7 @@ export function AuditorRerun() {
               </>
             )}
             {uploadError && <p className="mt-2 text-xs text-red-600 flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{uploadError}</p>}
-            <input ref={inputRef} type="file" accept=".csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.currentTarget.value = ""; }} />
+            <input ref={inputRef} type="file" accept=".csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
           </div>
 
           {/* Example datasets */}
@@ -1230,29 +1118,11 @@ export function AuditorRerun() {
               ))}
             </div>
           </div>
-          {recentUploads.length > 0 && (
-            <div className="px-4 pt-4">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Recent uploads</p>
-              <div className="space-y-1.5">
-                {recentUploads.map((uploaded, index) => (
-                  <button
-                    key={`${uploaded.fileName}-${index}`}
-                    type="button"
-                    onClick={() => loadUploadedDataset(uploaded)}
-                    className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${data?.fileName === uploaded.fileName ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/60"}`}
-                  >
-                    <span className="block truncate text-xs font-semibold text-gray-700">{uploaded.fileName}</span>
-                    <span className="mt-0.5 block text-[10px] text-gray-500">{uploaded.rows.length} rows · {uploaded.columns.length} cols · {uploaded.numericColumns.length} num / {uploaded.columns.length - uploaded.numericColumns.length} cat</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Configure audit */}
           <div className="px-4 pt-4 flex-1">
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Configure Audit</p>
-            {allCols.length >= 2 && (
+            {numCols.length >= 1 && (
               <div className="space-y-5">
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1.5">Target variable</label>
@@ -1388,16 +1258,14 @@ export function AuditorRerun() {
                           {r.risk === "low"    && <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><CheckCircle className="w-3.5 h-3.5" /> LOW RISK</span>}
                           <span className="text-xs text-gray-400">|</span>
                           <code className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${codeBg}`}>{r.name}</code>
-                          <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">{r.isEncoded ? "categorical" : "numeric"}</span>
+                          {r.isEncoded && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">categorical</span>}
                         </div>
                         <div className="flex flex-wrap gap-2 mt-2">
-                          <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${r.pearsonApplicable ? sigColor : "text-gray-400 bg-gray-50 border-gray-200"}`}>Pearson r = {r.pearsonApplicable ? r.corr.toFixed(3) : "N/A"}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${sigColor}`}>Pearson r = {r.corr.toFixed(3)}</span>
                           <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${r.mi >= MI_HIGH ? "text-red-600 bg-red-50 border-red-200" : r.mi >= MI_MED ? "text-amber-700 bg-amber-50 border-amber-200" : "text-gray-400 bg-gray-50 border-gray-200"}`}>MI = {r.mi.toFixed(3)} bits</span>
                           {r.disp !== null && <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${r.disp >= DISP_HIGH ? "text-red-600 bg-red-50 border-red-200" : r.disp >= DISP_MED ? "text-amber-700 bg-amber-50 border-amber-200" : "text-gray-400 bg-gray-50 border-gray-200"}`}>Disparity = {(r.disp * 100).toFixed(1)}%</span>}
                         </div>
-                        {r.pearsonApplicable ? <CorrelationBar value={r.corr} risk={r.risk} /> : (
-                          <p className="mt-2 text-xs text-gray-500">Pearson is omitted for multi-class nominal categories; mutual information and group disparity are used where applicable.</p>
-                        )}
+                        <CorrelationBar value={r.corr} risk={r.risk} />
                         {r.triggers.length > 0 && (
                           <div className="mt-2.5 space-y-1">
                             {r.triggers.map((t, i) => (
@@ -1501,9 +1369,9 @@ export function AuditorRerun() {
                               {r.risk === "high" ? "HIGH" : "MEDIUM"}
                             </span>
                             <code className="text-xs font-mono text-gray-800 font-semibold">{r.name}</code>
-                            <span className="text-xs text-gray-400">{r.isEncoded ? "categorical" : "numeric"}</span>
+                            {r.isEncoded && <span className="text-xs text-gray-400">categorical</span>}
                             <div className="flex items-center gap-3 ml-auto text-xs text-gray-400 font-mono">
-                              <span>r={r.pearsonApplicable ? r.corr.toFixed(3) : "N/A"}</span>
+                              <span>r={r.corr.toFixed(3)}</span>
                               <span>MI={r.mi.toFixed(3)}</span>
                               {r.disp != null && <span>Δ={(r.disp * 100).toFixed(1)}%</span>}
                             </div>
@@ -1543,7 +1411,6 @@ export function AuditorRerun() {
                     <span className="text-gray-300">·</span>
                     <span>Categorical: <strong className="text-gray-900">{activeData.columns.length - activeData.numericColumns.length}</strong></span>
                   </div>
-                  <p className="text-xs text-gray-500 mb-3">Types are inferred from column names and values. Select a type badge to correct it for this dataset; the audit recalculates immediately.</p>
                   <div className="overflow-x-auto rounded-lg border border-gray-200">
                     <table className="w-full text-xs">
                       <thead>
@@ -1552,14 +1419,7 @@ export function AuditorRerun() {
                             <th key={col} className={`px-3 py-2.5 text-left font-bold whitespace-nowrap ${col === currentTarget ? "text-indigo-600" : "text-gray-600"}`}>
                               <code>{col}</code>
                               {col === currentTarget && <span className="ml-1 text-indigo-400 font-normal">(target)</span>}
-                              <button
-                                type="button"
-                                onClick={() => toggleColumnType(col)}
-                                title={`Detected ${activeData.columnTypes[col]}; click to switch type`}
-                                className={`ml-2 rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors ${activeData.columnTypes[col] === "numeric" ? "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100" : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"}`}
-                              >
-                                {activeData.columnTypes[col] === "numeric" ? "NUM" : "CAT"}
-                              </button>
+                              {!activeData.numericColumns.includes(col) && col !== currentTarget && <span className="ml-1 text-amber-500 font-normal">cat.</span>}
                             </th>
                           ))}
                         </tr>
