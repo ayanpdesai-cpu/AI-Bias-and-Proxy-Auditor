@@ -682,7 +682,7 @@ function generatePDF(fileName: string, results: AuditResult[], currentTarget: st
     hfg: [number,number,number], bfg: [number,number,number],
   ) => {
     const hdrLines  = wrap(
-      `${r.name}   |   Pearson r = ${r.pearsonApplicable ? r.corr.toFixed(3) : "N/A (categorical)"}   |   MI = ${r.mi.toFixed(3)} bits`,
+      `${r.name}   |   Pearson r = ${r.pearsonApplicable ? r.corr.toFixed(3) : "N/A (nominal)"}   |   MI = ${r.mi.toFixed(3)} bits`,
       CW - 14, 9, "bold",
     );
     const bodyLines = wrap(bodyText, CW - 14, 8.5);
@@ -995,7 +995,12 @@ export function AuditorRerun() {
           .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
         const xs = pairs.map(([x]) => x);
         const targetNums = pairs.map(([, y]) => y);
-        const pearsonApplicable = !isCategorical && !targetIsCategorical;
+        // Pearson is valid for quantitative values and for two-class data
+        // (point-biserial / phi correlation). Do not apply it to nominal
+        // categories with 3+ labels, where label-encoding invents an order.
+        const pearsonApplicable =
+          (!isCategorical || new Set(xs).size === 2) &&
+          (!targetIsCategorical || new Set(targetNums).size === 2);
         const corr = pearsonApplicable ? pearson(xs, targetNums) : 0;
         const mi   = mutualInformation(xs, targetNums, isCategorical, targetIsCategorical);
         const disp = new Set(targetNums).size === 2 ? disparityScore(xs, targetNums) : null;
@@ -1337,7 +1342,7 @@ export function AuditorRerun() {
                           {r.disp !== null && <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${r.disp >= DISP_HIGH ? "text-red-600 bg-red-50 border-red-200" : r.disp >= DISP_MED ? "text-amber-700 bg-amber-50 border-amber-200" : "text-gray-400 bg-gray-50 border-gray-200"}`}>Disparity = {(r.disp * 100).toFixed(1)}%</span>}
                         </div>
                         {r.pearsonApplicable ? <CorrelationBar value={r.corr} risk={r.risk} /> : (
-                          <p className="mt-2 text-xs text-gray-500">Pearson is not meaningful for categorical features or targets; mutual information and group disparity are used where applicable.</p>
+                          <p className="mt-2 text-xs text-gray-500">Pearson is omitted for multi-class nominal categories; mutual information and group disparity are used where applicable.</p>
                         )}
                         {r.triggers.length > 0 && (
                           <div className="mt-2.5 space-y-1">
