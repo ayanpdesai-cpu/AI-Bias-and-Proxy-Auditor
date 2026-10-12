@@ -38,7 +38,8 @@ interface ParsedData {
   columns: string[];
   rows: Record<string, number | string>[];
   fileName: string;
-  numericColumns: string[];     // purely numeric — for target dropdown
+  numericColumns: string[];     // inferred quantitative columns; users can correct types
+  columnTypes: Record<string, "numeric" | "categorical">;
   allFeatureColumns: string[];  // every column (excluding default target)
 }
 interface AuditResult {
@@ -48,51 +49,85 @@ interface AuditResult {
   disp: number | null;
   risk: "high" | "medium" | "low";
   triggers: string[];
-  isEncoded: boolean;           // true if column was label-encoded (was non-numeric)
+  isEncoded: boolean;           // true when the feature is treated as categorical
+  pearsonApplicable: boolean;
 }
 
 // ── CSV / data helpers ─────────────────────────────────────────────────────
 function parseCSV(text: string): { columns: string[]; rows: Record<string, number | string>[] } {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return { columns: [], rows: [] };
-  const columns = lines[0].split(",").map(c => c.trim().replace(/^"|"$/g, ""));
+  const splitCsvLine = (line: string) => {
+    const cells: string[] = [];
+    let value = "", quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"' && line[i + 1] === '"' && quoted) { value += '"'; i++; }
+      else if (char === '"') quoted = !quoted;
+      else if (char === "," && !quoted) { cells.push(value.trim()); value = ""; }
+      else value += char;
+    }
+    cells.push(value.trim());
+    return cells;
+  };
+  const columns = splitCsvLine(lines[0]);
   const rows = lines.slice(1).filter(l => l.trim()).map(line => {
-    const vals = line.split(",").map(v => v.trim().replace(/^"|"$/g, ""));
+    const vals = splitCsvLine(line);
     const row: Record<string, number | string> = {};
     columns.forEach((col, i) => {
-      const n = parseFloat(vals[i] ?? "");
-      row[col] = isNaN(n) ? (vals[i] ?? "") : n;
+      const raw = vals[i] ?? "";
+      const n = Number(raw);
+      // Preserve leading-zero identifiers such as postal codes instead of
+      // silently converting "00501" into the number 501.
+      row[col] = /^0\d+$/.test(raw) ? raw : raw === "" || !Number.isFinite(n) ? raw : n;
     });
     return row;
   });
   return { columns, rows };
 }
 
-function numericCols(columns: string[], rows: Record<string, number | string>[]): string[] {
-  // Check ALL rows (not just 20) so large datasets are fully scanned
-  return columns.filter(col => rows.every(r => typeof r[col] === "number"));
+const CATEGORICAL_NAME_HINT = /(?:^|[_\s-])(id|key|code|zip|postal|phone|ssn|account|category|type|status|group|segment|class|flag|indicator|gender|sex|race|ethnicity|marital|state|country|district|region|department|insurance|plan|tier)(?:$|[_\s-])/i;
+
+function inferColumnTypes(columns: string[], rows: Record<string, number | string>[]): Record<string, "numeric" | "categorical"> {
+  return Object.fromEntries(columns.map(col => {
+    const values = rows.map(row => row[col]).filter(v => v !== "" && v != null);
+    const allNumeric = values.length > 0 && values.every(v => typeof v === "number");
+    const uniqueCount = new Set(values.map(v => String(v).trim().toLowerCase())).size;
+    const lowCardinalityNumeric = allNumeric && (
+      uniqueCount <= 2 ||
+      (uniqueCount <= 12 && values.length >= 20 && uniqueCount / values.length <= 0.25)
+    );
+    const tokenizedName = col.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
+    const compactName = tokenizedName.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const namedCategory = CATEGORICAL_NAME_HINT.test(tokenizedName) ||
+      /(?:id|key|code|zipcode|postalcode|phone|ssn)$/.test(compactName);
+    return [col, allNumeric && !namedCategory && !lowCardinalityNumeric ? "numeric" : "categorical"];
+  }));
 }
 
-// Label-encode a column: string values → integers; numeric values stay as-is.
-// Returns { nums, encoded: true if any string values were found }
-function encodeColumn(col: string, rows: Record<string, number | string>[]): { nums: number[]; encoded: boolean } {
+// Keep quantitative values numeric; map categories (including numeric-coded
+// categories such as 0/1, ZIP codes, and enum values) to stable category IDs.
+function encodeColumn(col: string, rows: Record<string, number | string>[], categorical = false): { nums: number[]; encoded: boolean } {
   const vals = rows.map(r => r[col]);
-  const hasStrings = vals.some(v => typeof v === "string");
-  if (!hasStrings) return { nums: vals as number[], encoded: false };
+  if (!categorical) {
+    return { nums: vals.map(v => v === "" || v == null ? NaN : Number(v)), encoded: false };
+  }
   // Build label map
   const labels = new Map<string, number>();
   let idx = 0;
   vals.forEach(v => {
+    if (v === "" || v == null) return;
     const key = String(v).toLowerCase().trim();
     if (!labels.has(key)) labels.set(key, idx++);
   });
-  return { nums: vals.map(v => labels.get(String(v).toLowerCase().trim()) ?? 0), encoded: true };
+  return { nums: vals.map(v => v === "" || v == null ? NaN : labels.get(String(v).toLowerCase().trim()) ?? NaN), encoded: true };
 }
 
 function buildData(csv: string, fileName: string): ParsedData {
   const { columns, rows } = parseCSV(csv);
-  const nc = numericCols(columns, rows);
-  return { columns, rows, fileName, numericColumns: nc, allFeatureColumns: columns };
+  const columnTypes = inferColumnTypes(columns, rows);
+  const numericColumns = columns.filter(col => columnTypes[col] === "numeric");
+  return { columns, rows, fileName, numericColumns, columnTypes, allFeatureColumns: columns };
 }
 
 // ── Analytics ──────────────────────────────────────────────────────────────
@@ -108,29 +143,37 @@ function pearson(xs: number[], ys: number[]): number {
   }
   return Math.sqrt(dx * dy) === 0 ? 0 : Math.abs(num / Math.sqrt(dx * dy));
 }
-function mutualInformation(xs: number[], ys: number[]): number {
+function mutualInformation(xs: number[], ys: number[], discreteX = false, discreteY = false): number {
   const n = xs.length;
   if (n < 4) return 0;
   const bins = Math.max(2, Math.min(8, Math.floor(Math.sqrt(n))));
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
   const rX = (maxX - minX) || 1, rY = (maxY - minY) || 1;
-  const joint: number[][] = Array.from({ length: bins }, () => Array(bins).fill(0));
-  const mX: number[] = Array(bins).fill(0);
-  const mY: number[] = Array(bins).fill(0);
+  const xLabels = discreteX ? [...new Set(xs)] : [];
+  const yLabels = discreteY ? [...new Set(ys)] : [];
+  const xBins = discreteX ? xLabels.length : bins;
+  const yBins = discreteY ? yLabels.length : bins;
+  const xIndex = new Map(xLabels.map((value, i) => [value, i]));
+  const yIndex = new Map(yLabels.map((value, i) => [value, i]));
+  const joint: number[][] = Array.from({ length: xBins }, () => Array(yBins).fill(0));
+  const mX: number[] = Array(xBins).fill(0);
+  const mY: number[] = Array(yBins).fill(0);
   for (let i = 0; i < n; i++) {
-    const bx = Math.min(Math.floor(((xs[i] - minX) / rX) * bins), bins - 1);
-    const by = Math.min(Math.floor(((ys[i] - minY) / rY) * bins), bins - 1);
+    const bx = discreteX ? (xIndex.get(xs[i]) ?? 0) : Math.min(Math.floor(((xs[i] - minX) / rX) * bins), bins - 1);
+    const by = discreteY ? (yIndex.get(ys[i]) ?? 0) : Math.min(Math.floor(((ys[i] - minY) / rY) * bins), bins - 1);
     joint[bx][by]++; mX[bx]++; mY[by]++;
   }
   let mi = 0;
-  for (let i = 0; i < bins; i++)
-    for (let j = 0; j < bins; j++)
+  for (let i = 0; i < xBins; i++)
+    for (let j = 0; j < yBins; j++)
       if (joint[i][j] > 0 && mX[i] > 0 && mY[j] > 0)
         mi += (joint[i][j] / n) * Math.log2((joint[i][j] * n) / (mX[i] * mY[j]));
   return Math.max(0, mi);
 }
 function disparityScore(xs: number[], ys: number[]): number | null {
+  // Group outcome-rate gaps are meaningful only for a two-class outcome.
+  if (new Set(ys).size !== 2) return null;
   const unique = [...new Set(xs)];
   if (unique.length > 12 || unique.length < 2) return null;
   const means = unique.map(v => {
@@ -608,13 +651,13 @@ function generatePDF(fileName: string, results: AuditResult[], currentTarget: st
     doc.text(nameStr, TC[0].x + 1.5, midY);
 
     S(7, "normal", [120, 130, 150]);
-    doc.text(r.isEncoded ? "categ." : "numeric", TC[1].x + 1.5, midY);
+    doc.text(r.isEncoded ? "cat." : "numeric", TC[1].x + 1.5, midY);
 
     S(7.5, "bold", fg);
     doc.text(r.risk === "high" ? "HIGH" : r.risk === "medium" ? "MED" : "LOW", TC[2].x + 1.5, midY);
 
     S(7.5, "normal", [70, 70, 70]);
-    doc.text(r.corr.toFixed(3), TC[3].x + 1.5, midY);
+    doc.text(r.pearsonApplicable ? r.corr.toFixed(3) : "N/A", TC[3].x + 1.5, midY);
     doc.text(r.mi.toFixed(3),  TC[4].x + 1.5, midY);
     doc.text(r.disp != null ? `${(r.disp * 100).toFixed(1)}%` : "—", TC[5].x + 1.5, midY);
 
@@ -639,7 +682,7 @@ function generatePDF(fileName: string, results: AuditResult[], currentTarget: st
     hfg: [number,number,number], bfg: [number,number,number],
   ) => {
     const hdrLines  = wrap(
-      `${r.name}   |   Pearson r = ${r.corr.toFixed(3)}   |   MI = ${r.mi.toFixed(3)} bits`,
+      `${r.name}   |   Pearson r = ${r.pearsonApplicable ? r.corr.toFixed(3) : "N/A (categorical)"}   |   MI = ${r.mi.toFixed(3)} bits`,
       CW - 14, 9, "bold",
     );
     const bodyLines = wrap(bodyText, CW - 14, 8.5);
@@ -834,7 +877,7 @@ function CorrelationHeatmap({ data, cols }: { data: ParsedData; cols: string[] }
 function FeatureRiskChart({ results, currentTarget }: { results: AuditResult[]; currentTarget: string }) {
   const data = results.map(r => ({
     name: r.name,
-    "Pearson r": parseFloat(r.corr.toFixed(3)),
+    "Pearson r": r.pearsonApplicable ? parseFloat(r.corr.toFixed(3)) : null,
     "MI (bits)": parseFloat(Math.min(r.mi, 1).toFixed(3)),
     "Disparity": r.disp != null ? parseFloat(r.disp.toFixed(3)) : 0,
     risk: r.risk,
@@ -883,6 +926,7 @@ function FeatureRiskChart({ results, currentTarget }: { results: AuditResult[]; 
 // ── Main component ─────────────────────────────────────────────────────────
 export function AuditorRerun() {
   const [data, setData]               = useState<ParsedData | null>(null);
+  const [recentUploads, setRecentUploads] = useState<ParsedData[]>([]);
   const [targetCol, setTargetCol]     = useState("approved");
   const [threshold, setThreshold]     = useState(0.75);
   const [activeTab, setActiveTab]     = useState<"audit" | "viz" | "report" | "preview">("audit");
@@ -895,8 +939,8 @@ export function AuditorRerun() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const fadeTimer  = setTimeout(() => setSplashFade(true),  1100);
-    const hideTimer  = setTimeout(() => setSplash(false),     1500);
+    const fadeTimer  = setTimeout(() => setSplashFade(true),  700);
+    const hideTimer  = setTimeout(() => setSplash(false),     1000);
     return () => { clearTimeout(fadeTimer); clearTimeout(hideTimer); };
   }, []);
 
@@ -907,36 +951,66 @@ export function AuditorRerun() {
     setTargetCol(ex.target);
     setUploadError("");
   }, []);
+  const loadUploadedDataset = useCallback((uploaded: ParsedData) => {
+    setData(uploaded);
+    setTargetCol(uploaded.columns[uploaded.columns.length - 1] ?? "");
+    setUploadError("");
+  }, []);
 
   const activeData    = data ?? buildData(EXAMPLE_DATASETS[0].csv, EXAMPLE_DATASETS[0].fileName);
   const numCols       = activeData.numericColumns;
   const allCols       = activeData.allFeatureColumns;
+  const toggleColumnType = useCallback((col: string) => {
+    const base = data ?? activeData;
+    const nextType = base.columnTypes[col] === "numeric" ? "categorical" : "numeric";
+    const values = base.rows.map(row => row[col]).filter(value => value !== "" && value != null);
+    if (nextType === "numeric" && !values.every(value => Number.isFinite(Number(value)))) {
+      setUploadError(`"${col}" contains non-numeric values and cannot be analyzed as a numeric feature.`);
+      return;
+    }
+    const columnTypes = { ...base.columnTypes, [col]: nextType };
+    const updatedData = {
+      ...base,
+      columnTypes,
+      numericColumns: base.columns.filter(name => columnTypes[name] === "numeric"),
+    };
+    setData(updatedData);
+    setRecentUploads(previous => previous.map(item => item.fileName === base.fileName ? updatedData : item));
+    setUploadError("");
+  }, [activeData, data]);
   // Target can be ANY column (numeric or categorical — we label-encode it if needed)
   const currentTarget = allCols.includes(targetCol) ? targetCol : allCols[allCols.length - 1] ?? "";
 
   // Analyse every column (numeric AND categorical) except the target
   const results: AuditResult[] = useMemo(() => {
     if (!currentTarget) return [];
-    const targetNums = encodeColumn(currentTarget, activeData.rows).nums;
+    const targetIsCategorical = activeData.columnTypes[currentTarget] === "categorical";
+    const targetNumsAll = encodeColumn(currentTarget, activeData.rows, targetIsCategorical).nums;
     return activeData.allFeatureColumns
       .filter(c => c !== currentTarget)
       .map(name => {
-        const { nums: xs, encoded } = encodeColumn(name, activeData.rows);
-        const corr = pearson(xs, targetNums);
-        const mi   = mutualInformation(xs, targetNums);
-        const disp = disparityScore(xs, targetNums);
+        const isCategorical = activeData.columnTypes[name] === "categorical";
+        const featureNumsAll = encodeColumn(name, activeData.rows, isCategorical).nums;
+        const pairs = featureNumsAll.map((x, i) => [x, targetNumsAll[i]] as const)
+          .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+        const xs = pairs.map(([x]) => x);
+        const targetNums = pairs.map(([, y]) => y);
+        const pearsonApplicable = !isCategorical && !targetIsCategorical;
+        const corr = pearsonApplicable ? pearson(xs, targetNums) : 0;
+        const mi   = mutualInformation(xs, targetNums, isCategorical, targetIsCategorical);
+        const disp = new Set(targetNums).size === 2 ? disparityScore(xs, targetNums) : null;
         const triggers: string[] = [];
         let risk: "high" | "medium" | "low" = "low";
 
-        if (corr >= threshold)              { triggers.push(`Pearson r = ${corr.toFixed(3)} — strong linear correlation (above ${threshold.toFixed(2)} threshold)`); risk = "high"; }
-        else if (corr >= threshold * 0.65)  { triggers.push(`Pearson r = ${corr.toFixed(3)} — moderate linear correlation`); if (risk === "low") risk = "medium"; }
+        if (pearsonApplicable && corr >= threshold)              { triggers.push(`Pearson r = ${corr.toFixed(3)} — strong linear correlation (above ${threshold.toFixed(2)} threshold)`); risk = "high"; }
+        else if (pearsonApplicable && corr >= threshold * 0.65)  { triggers.push(`Pearson r = ${corr.toFixed(3)} — moderate linear correlation`); if (risk === "low") risk = "medium"; }
         if (mi >= MI_HIGH)                  { triggers.push(`Mutual Information = ${mi.toFixed(3)} bits — strong non-linear association`); if (risk !== "high") risk = "high"; }
         else if (mi >= MI_MED)              { triggers.push(`Mutual Information = ${mi.toFixed(3)} bits — moderate non-linear association`); if (risk === "low") risk = "medium"; }
         if (disp !== null && disp >= DISP_HIGH)  { triggers.push(`Group disparity = ${(disp * 100).toFixed(1)}% — large outcome rate gap between groups`); if (risk !== "high") risk = "high"; }
         else if (disp !== null && disp >= DISP_MED) { triggers.push(`Group disparity = ${(disp * 100).toFixed(1)}% — notable outcome rate gap between groups`); if (risk === "low") risk = "medium"; }
         if (isSensitive(name))              { triggers.push(`"${name}" matches a known sensitive or protected attribute`); if (risk === "low") risk = "medium"; }
 
-        return { name, corr, mi, disp, risk, triggers, isEncoded: encoded };
+        return { name, corr, mi, disp, risk, triggers, isEncoded: isCategorical, pearsonApplicable };
       })
       .sort((a, b) => {
         const rOrder = { high: 2, medium: 1, low: 0 };
@@ -950,7 +1024,7 @@ export function AuditorRerun() {
 
   const recs = useMemo(() => {
     const out: string[] = [];
-    flagged.forEach(r => out.push(`Remove or replace "${r.name}" — strong bias signal detected (r=${r.corr.toFixed(2)}).`));
+    flagged.forEach(r => out.push(`Review "${r.name}" — strong association detected${r.pearsonApplicable ? ` (r=${r.corr.toFixed(2)})` : ` (MI=${r.mi.toFixed(2)} bits)`}.`));
     medium.forEach(r => out.push(`Review "${r.name}" — sensitive or protected attribute. Evaluate whether it is strictly necessary.`));
     if (flagged.length > 0 || medium.length > 0) {
       out.push("Run demographic parity and equalized odds checks before deploying any model trained on this data.");
@@ -962,13 +1036,14 @@ export function AuditorRerun() {
 
   const handleFile = useCallback((file: File) => {
     setUploadError("");
-    if (!file.name.endsWith(".csv")) { setUploadError("Only CSV files are supported."); return; }
+      if (!file.name.toLowerCase().endsWith(".csv")) { setUploadError("Only CSV files are supported."); return; }
     const reader = new FileReader();
     reader.onload = (e) => {
       const d = buildData(e.target?.result as string, file.name);
-      if (d.numericColumns.length < 1) { setUploadError("Need at least 1 numeric column to use as target."); return; }
+        if (d.columns.length < 2 || d.rows.length === 0) { setUploadError("The CSV needs a header, at least one data row, and two or more columns."); return; }
       setData(d);
-      setTargetCol(d.numericColumns[d.numericColumns.length - 1]);
+        setRecentUploads(previous => [d, ...previous.filter(item => item.fileName !== d.fileName)].slice(0, 5));
+        setTargetCol(d.columns[d.columns.length - 1]);
     };
     reader.readAsText(file);
   }, []);
@@ -1078,7 +1153,7 @@ export function AuditorRerun() {
               </>
             )}
             {uploadError && <p className="mt-2 text-xs text-red-600 flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{uploadError}</p>}
-            <input ref={inputRef} type="file" accept=".csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+            <input ref={inputRef} type="file" accept=".csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.currentTarget.value = ""; }} />
           </div>
 
           {/* Example datasets */}
@@ -1096,11 +1171,29 @@ export function AuditorRerun() {
               ))}
             </div>
           </div>
+          {recentUploads.length > 0 && (
+            <div className="px-4 pt-4">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Recent uploads</p>
+              <div className="space-y-1.5">
+                {recentUploads.map((uploaded, index) => (
+                  <button
+                    key={`${uploaded.fileName}-${index}`}
+                    type="button"
+                    onClick={() => loadUploadedDataset(uploaded)}
+                    className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${data?.fileName === uploaded.fileName ? "border-emerald-300 bg-emerald-50" : "border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/60"}`}
+                  >
+                    <span className="block truncate text-xs font-semibold text-gray-700">{uploaded.fileName}</span>
+                    <span className="mt-0.5 block text-[10px] text-gray-500">{uploaded.rows.length} rows · {uploaded.columns.length} cols · {uploaded.numericColumns.length} num / {uploaded.columns.length - uploaded.numericColumns.length} cat</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Configure audit */}
           <div className="px-4 pt-4 flex-1">
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Configure Audit</p>
-            {numCols.length >= 1 && (
+            {allCols.length >= 2 && (
               <div className="space-y-5">
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1.5">Target variable</label>
@@ -1236,14 +1329,16 @@ export function AuditorRerun() {
                           {r.risk === "low"    && <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700"><CheckCircle className="w-3.5 h-3.5" /> LOW RISK</span>}
                           <span className="text-xs text-gray-400">|</span>
                           <code className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${codeBg}`}>{r.name}</code>
-                          {r.isEncoded && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">categorical</span>}
+                          <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">{r.isEncoded ? "categorical" : "numeric"}</span>
                         </div>
                         <div className="flex flex-wrap gap-2 mt-2">
-                          <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${sigColor}`}>Pearson r = {r.corr.toFixed(3)}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${r.pearsonApplicable ? sigColor : "text-gray-400 bg-gray-50 border-gray-200"}`}>Pearson r = {r.pearsonApplicable ? r.corr.toFixed(3) : "N/A"}</span>
                           <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${r.mi >= MI_HIGH ? "text-red-600 bg-red-50 border-red-200" : r.mi >= MI_MED ? "text-amber-700 bg-amber-50 border-amber-200" : "text-gray-400 bg-gray-50 border-gray-200"}`}>MI = {r.mi.toFixed(3)} bits</span>
                           {r.disp !== null && <span className={`text-xs px-2 py-0.5 rounded-full border font-mono ${r.disp >= DISP_HIGH ? "text-red-600 bg-red-50 border-red-200" : r.disp >= DISP_MED ? "text-amber-700 bg-amber-50 border-amber-200" : "text-gray-400 bg-gray-50 border-gray-200"}`}>Disparity = {(r.disp * 100).toFixed(1)}%</span>}
                         </div>
-                        <CorrelationBar value={r.corr} risk={r.risk} />
+                        {r.pearsonApplicable ? <CorrelationBar value={r.corr} risk={r.risk} /> : (
+                          <p className="mt-2 text-xs text-gray-500">Pearson is not meaningful for categorical features or targets; mutual information and group disparity are used where applicable.</p>
+                        )}
                         {r.triggers.length > 0 && (
                           <div className="mt-2.5 space-y-1">
                             {r.triggers.map((t, i) => (
@@ -1347,9 +1442,9 @@ export function AuditorRerun() {
                               {r.risk === "high" ? "HIGH" : "MEDIUM"}
                             </span>
                             <code className="text-xs font-mono text-gray-800 font-semibold">{r.name}</code>
-                            {r.isEncoded && <span className="text-xs text-gray-400">categorical</span>}
+                            <span className="text-xs text-gray-400">{r.isEncoded ? "categorical" : "numeric"}</span>
                             <div className="flex items-center gap-3 ml-auto text-xs text-gray-400 font-mono">
-                              <span>r={r.corr.toFixed(3)}</span>
+                              <span>r={r.pearsonApplicable ? r.corr.toFixed(3) : "N/A"}</span>
                               <span>MI={r.mi.toFixed(3)}</span>
                               {r.disp != null && <span>Δ={(r.disp * 100).toFixed(1)}%</span>}
                             </div>
@@ -1389,6 +1484,7 @@ export function AuditorRerun() {
                     <span className="text-gray-300">·</span>
                     <span>Categorical: <strong className="text-gray-900">{activeData.columns.length - activeData.numericColumns.length}</strong></span>
                   </div>
+                  <p className="text-xs text-gray-500 mb-3">Types are inferred from column names and values. Select a type badge to correct it for this dataset; the audit recalculates immediately.</p>
                   <div className="overflow-x-auto rounded-lg border border-gray-200">
                     <table className="w-full text-xs">
                       <thead>
@@ -1397,7 +1493,14 @@ export function AuditorRerun() {
                             <th key={col} className={`px-3 py-2.5 text-left font-bold whitespace-nowrap ${col === currentTarget ? "text-indigo-600" : "text-gray-600"}`}>
                               <code>{col}</code>
                               {col === currentTarget && <span className="ml-1 text-indigo-400 font-normal">(target)</span>}
-                              {!activeData.numericColumns.includes(col) && col !== currentTarget && <span className="ml-1 text-amber-500 font-normal">cat.</span>}
+                              <button
+                                type="button"
+                                onClick={() => toggleColumnType(col)}
+                                title={`Detected ${activeData.columnTypes[col]}; click to switch type`}
+                                className={`ml-2 rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors ${activeData.columnTypes[col] === "numeric" ? "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100" : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"}`}
+                              >
+                                {activeData.columnTypes[col] === "numeric" ? "NUM" : "CAT"}
+                              </button>
                             </th>
                           ))}
                         </tr>
