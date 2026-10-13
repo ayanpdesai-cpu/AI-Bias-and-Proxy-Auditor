@@ -796,43 +796,117 @@ function ProxyInfoBanner({ open, onToggle }: { open: boolean; onToggle: () => vo
 
 // ── Correlation Heatmap ────────────────────────────────────────────────────
 function CorrelationHeatmap({ data, cols }: { data: ParsedData; cols: string[] }) {
-  const numericOnly = useMemo(() => cols.filter(c => data.numericColumns.includes(c)), [cols, data]);
-  const matrix = useMemo(() =>
-    numericOnly.map(colA =>
-      numericOnly.map(colB => {
-        if (colA === colB) return 1;
-        const xs = data.rows.map(r => r[colA] as number);
-        const ys = data.rows.map(r => r[colB] as number);
-        return pearson(xs, ys);
-      })
-    ), [data, numericOnly]);
+  // Keep every dataset column, including categoricals and the selected target.
+  const columns = useMemo(
+    () => [...new Set(cols)].filter(col => data.columns.includes(col)),
+    [cols, data.columns],
+  );
+  const matrix = useMemo(() => {
+    const encoded = Object.fromEntries(columns.map(col => {
+      const categorical = data.columnTypes[col] === "categorical";
+      return [col, { ...encodeColumn(col, data.rows, categorical), categorical }];
+    }));
 
-  if (numericOnly.length < 2) {
-    return <p className="text-xs text-gray-400">Heatmap requires at least 2 numeric columns.</p>;
+    const normalizedMutualInformation = (
+      xs: number[],
+      ys: number[],
+      discreteX: boolean,
+      discreteY: boolean,
+    ) => {
+      const n = xs.length;
+      if (n < 2) return 0;
+      const bins = Math.max(2, Math.min(8, Math.floor(Math.sqrt(n))));
+      const makeBins = (values: number[]) => {
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const range = max - min || 1;
+        return values.map(value => Math.min(Math.floor(((value - min) / range) * bins), bins - 1));
+      };
+      const xValues = discreteX ? xs : makeBins(xs);
+      const yValues = discreteY ? ys : makeBins(ys);
+      const xCounts = new Map<number, number>();
+      const yCounts = new Map<number, number>();
+      const joint = new Map<string, number>();
+      xValues.forEach((x, i) => {
+        const y = yValues[i];
+        const key = `${x}\u0000${y}`;
+        xCounts.set(x, (xCounts.get(x) ?? 0) + 1);
+        yCounts.set(y, (yCounts.get(y) ?? 0) + 1);
+        joint.set(key, (joint.get(key) ?? 0) + 1);
+      });
+      const entropy = (counts: Map<number, number>) => [...counts.values()].reduce((sum, count) => {
+        const p = count / n;
+        return sum - p * Math.log2(p);
+      }, 0);
+      let mi = 0;
+      joint.forEach((count, key) => {
+        const [xKey, yKey] = key.split("\u0000");
+        const x = Number(xKey), y = Number(yKey);
+        const p = count / n;
+        mi += p * Math.log2((count * n) / ((xCounts.get(x) ?? 1) * (yCounts.get(y) ?? 1)));
+      });
+      const maxEntropy = Math.max(entropy(xCounts), entropy(yCounts));
+      return maxEntropy > 0 ? Math.max(0, Math.min(1, mi / maxEntropy)) : 0;
+    };
+
+    return columns.map(colA => columns.map(colB => {
+      if (colA === colB) return { value: 1, method: "Self association" };
+      const a = encoded[colA], b = encoded[colB];
+      const pairs = a.nums.map((x, i) => [x, b.nums[i]] as const)
+        .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+      const xs = pairs.map(([x]) => x);
+      const ys = pairs.map(([, y]) => y);
+      if (xs.length < 2) return { value: 0, method: "Insufficient data" };
+
+      // Pearson is valid for quantitative values and binary categories; it
+      // should not impose an arbitrary order on nominal categories.
+      const pearsonApplicable =
+        (!a.categorical || new Set(xs).size === 2) &&
+        (!b.categorical || new Set(ys).size === 2);
+      if (pearsonApplicable) return { value: pearson(xs, ys), method: "Absolute Pearson r" };
+
+      return {
+        value: normalizedMutualInformation(xs, ys, a.categorical, b.categorical),
+        method: "Normalized mutual information",
+      };
+    }));
+  }, [columns, data]);
+
+  if (columns.length < 2) {
+    return <p className="text-xs text-gray-400">Heatmap requires at least 2 dataset columns.</p>;
   }
 
-  const cellSz = Math.min(66, Math.max(38, Math.floor(500 / Math.max(numericOnly.length, 1))));
-  const labelW = 84;
+  const cellSz = Math.min(58, Math.max(34, Math.floor(640 / Math.max(columns.length, 1))));
+  const labelW = Math.max(88, Math.min(140, cellSz * 2));
   return (
     <div>
-      <h3 className="text-sm font-bold text-gray-800 mb-0.5">Correlation Heatmap</h3>
-      <p className="text-xs text-gray-500 mb-3">Pearson correlation between every pair of numeric features. Darker red = stronger correlation. Indigo diagonal = self (always 1.0).</p>
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-0.5">
+        <h3 className="text-sm font-bold text-gray-800">Feature Association Heatmap</h3>
+        <span className="text-xs text-gray-400">{columns.length} of {data.columns.length} dataset columns</span>
+      </div>
+      <p className="text-xs text-gray-500 mb-3">
+        Every dataset variable is included. Numeric pairs and binary categories use absolute Pearson r; nominal categories use normalized mutual information. Hover over a cell for its measure.
+      </p>
       <div className="overflow-auto">
         <div className="inline-flex flex-col">
           <div className="flex" style={{ marginLeft: labelW }}>
-            {numericOnly.map(col => (
+            {columns.map(col => (
               <div key={col} style={{ width: cellSz, minWidth: cellSz }} className="text-center px-0.5">
-                <span className="text-xs text-gray-500 block truncate" title={col}>{col.slice(0, 8)}</span>
+                <span className="text-[10px] text-gray-500 block truncate" title={`${col} · ${data.columnTypes[col]}`}>
+                  {col.slice(0, 8)}
+                </span>
               </div>
             ))}
           </div>
           {matrix.map((row, i) => (
-            <div key={numericOnly[i]} className="flex items-center">
-              <div style={{ width: labelW, minWidth: labelW }} className="text-xs text-gray-600 truncate pr-2 text-right shrink-0" title={numericOnly[i]}>{numericOnly[i].slice(0, 11)}</div>
-              {row.map((val, j) => (
-                <div key={j} style={{ width: cellSz, height: cellSz, minWidth: cellSz, backgroundColor: i === j ? "#4f46e5" : corrToColor(val), border: "1px solid #e5e7eb" }}
-                  className="flex items-center justify-center cursor-default" title={`${numericOnly[i]} × ${numericOnly[j]}: ${val.toFixed(3)}`}>
-                  <span style={{ color: (i === j || val > 0.55) ? "#fff" : "#374151", fontSize: cellSz < 46 ? "9px" : "11px" }} className="font-mono font-bold">{val.toFixed(2)}</span>
+            <div key={columns[i]} className="flex items-center">
+              <div style={{ width: labelW, minWidth: labelW }} className="text-[10px] text-gray-600 truncate pr-2 text-right shrink-0" title={`${columns[i]} · ${data.columnTypes[columns[i]]}`}>
+                {columns[i]}
+              </div>
+              {row.map(({ value, method }, j) => (
+                <div key={j} style={{ width: cellSz, height: cellSz, minWidth: cellSz, backgroundColor: i === j ? "#4f46e5" : corrToColor(value), border: "1px solid #e5e7eb" }}
+                  className="flex items-center justify-center cursor-default" title={`${columns[i]} × ${columns[j]} · ${method}: ${value.toFixed(3)}`}>
+                  <span style={{ color: (i === j || value > 0.55) ? "#fff" : "#374151", fontSize: cellSz < 46 ? "9px" : "11px" }} className="font-mono font-bold">{value.toFixed(2)}</span>
                 </div>
               ))}
             </div>
@@ -845,7 +919,7 @@ function CorrelationHeatmap({ data, cols }: { data: ParsedData; cols: string[] }
           </div>
           <span className="text-xs text-gray-400">High</span>
           <div className="w-5 h-3 rounded ml-4" style={{ backgroundColor: "#4f46e5" }} />
-          <span className="text-xs text-gray-400">Self (diagonal)</span>
+          <span className="text-xs text-gray-400">Self association (diagonal)</span>
         </div>
       </div>
     </div>
