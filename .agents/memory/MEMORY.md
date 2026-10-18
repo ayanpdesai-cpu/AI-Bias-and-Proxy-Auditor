@@ -1,2 +1,3 @@
 - [BiasX example dataset design](biasx-datasets.md) — verified risk distributions for all three example datasets; data design rules to maintain them
 - [BiasX type semantics](biasx-type-semantics.md) — binary categories support Pearson; multiclass nominal categories must not receive arbitrary ordered correlations.
+- [Python artifact working directories](artifact-python-workdirs.md) — development and production commands resolve paths from different directories; preserve Streamlit's working directory.

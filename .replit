@@ -1,9 +1,8 @@
-modules = ["python-3.11", "nodejs-20"]
-[agent]
-expertMode = true
+modules = ["nodejs-24", "python-3.11"]
 
-[nix]
-channel = "stable-25_05"
+[deployment]
+deploymentTarget = "autoscale"
+run = ["streamlit", "run", "app.py", "--server.port", "5000", "--server.address", "0.0.0.0"]
 
 [workflows]
 runButton = "Project"
@@ -15,48 +14,20 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Start application"
+args = "artifacts/api-server: Streamlit"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Python API"
-
-[[workflows.workflow]]
-name = "Start application"
-author = "agent"
+args = "artifacts/api-server: Python API"
 
 [[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "streamlit run app.py --server.port 5000 --server.address 0.0.0.0"
-waitForPort = 5000
+task = "workflow.run"
+args = "artifacts/mockup-sandbox: Component Preview Server"
 
-[workflows.workflow.metadata]
-outputType = "webview"
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
 
-[[workflows.workflow]]
-name = "Python API"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python api.py"
-waitForPort = 8080
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[ports]]
-localPort = 5000
-externalPort = 80
-
-[[ports]]
-localPort = 8080
-externalPort = 8080
-
-[[ports]]
-localPort = 23636
-externalPort = 80
-
-[deployment]
-deploymentTarget = "autoscale"
-run = ["streamlit", "run", "app.py", "--server.port", "5000", "--server.address", "0.0.0.0"]
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000

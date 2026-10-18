@@ -1,0 +1,36 @@
+kind = "api"
+previewPath = "/"
+title = "BiasX Python Apps"
+version = "1.0.0"
+id = "3B4_FFSkEVBkAeYMFRJ2e"
+
+[[services]]
+localPort = 5000
+name = "Streamlit"
+paths = ["/"]
+
+[services.env]
+PORT = "5000"
+
+[services.development]
+run = "cd ../.. && streamlit run app.py --server.port 5000 --server.address 0.0.0.0"
+
+[services.production.build]
+args = ["python", "-m", "pip", "install", "-r", "requirements.txt"]
+
+[services.production.run]
+args = ["streamlit", "run", "app.py", "--server.port", "5000", "--server.address", "0.0.0.0"]
+
+[services.production.health.startup]
+path = "/"
+
+[[services]]
+localPort = 8080
+name = "Python API"
+paths = ["/columns", "/run-audit"]
+
+[services.env]
+PORT = "8080"
+
+[services.development]
+run = "cd ../.. && python api.py"

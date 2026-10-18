@@ -2,3 +2,5 @@ streamlit
 pandas
 scikit-learn 
 streamlit-analytics2
+flask
+flask-cors

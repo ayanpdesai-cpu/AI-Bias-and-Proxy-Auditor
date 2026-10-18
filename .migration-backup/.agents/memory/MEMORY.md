@@ -1,0 +1,2 @@
+- [BiasX example dataset design](biasx-datasets.md) — verified risk distributions for all three example datasets; data design rules to maintain them
+- [BiasX type semantics](biasx-type-semantics.md) — binary categories support Pearson; multiclass nominal categories must not receive arbitrary ordered correlations.

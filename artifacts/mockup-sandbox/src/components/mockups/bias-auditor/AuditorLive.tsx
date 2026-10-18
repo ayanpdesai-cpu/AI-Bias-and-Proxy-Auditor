@@ -4,8 +4,8 @@ import {
   X, RefreshCw, FileText, ChevronDown, Download, Play, Wifi, WifiOff
 } from "lucide-react";
 
-// API base — Flask runs on port 8080
-const API = `https://${location.hostname}:8080`;
+// The shared workspace router forwards these original Flask endpoints.
+const API = "";
 
 interface AuditResult { name: string; correlation: number; risk: "high" | "low"; }
 interface AuditResponse {
