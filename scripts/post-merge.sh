@@ -5,11 +5,8 @@ cd "$(dirname "$0")/.."
 pnpm install --frozen-lockfile
 
 # The Nix-managed interpreter is externally managed (PEP 668). Install the
-# project's Python dependencies into its writable user-site instead of trying
+# project's Python dependencies into its writable user-base instead of trying
 # to modify the immutable interpreter environment.
-python_user_site="$(python -m site --user-site)"
-mkdir -p "$python_user_site"
-python -m pip install \
-  --target "$python_user_site" \
-  --disable-pip-version-check \
-  -r requirements.txt
+python_user_base="$(python -m site --user-base)"
+mkdir -p "$python_user_base"
+uv pip install --prefix "$python_user_base" -r requirements.txt

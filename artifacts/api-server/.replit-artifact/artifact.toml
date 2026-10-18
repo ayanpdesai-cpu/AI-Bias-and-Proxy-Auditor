@@ -13,13 +13,13 @@ paths = ["/"]
 PORT = "5000"
 
 [services.development]
-run = "cd ../.. && streamlit run app.py --server.port 5000 --server.address 0.0.0.0"
+run = "cd ../.. && exec python -m streamlit run app.py --server.port $PORT --server.address 0.0.0.0"
 
 [services.production.build]
-args = ["python", "-m", "pip", "install", "-r", "requirements.txt"]
+args = ["bash", "-c", "uv pip install --prefix \"$(python -m site --user-base)\" -r requirements.txt"]
 
 [services.production.run]
-args = ["streamlit", "run", "app.py", "--server.port", "5000", "--server.address", "0.0.0.0"]
+args = ["python", "-m", "streamlit", "run", "app.py", "--server.port", "5000", "--server.address", "0.0.0.0"]
 
 [services.production.health.startup]
 path = "/"
@@ -33,4 +33,4 @@ paths = ["/columns", "/run-audit"]
 PORT = "8080"
 
 [services.development]
-run = "cd ../.. && python api.py"
+run = "cd ../.. && exec python api.py"
