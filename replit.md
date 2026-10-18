@@ -35,11 +35,11 @@ Do not redirect publishing to the mockup sandbox. The React app has its own arti
 
 The web app starts empty and analyzes explicit example selections or CSV uploads entirely in the browser. It does not send uploaded datasets to the Python API or persist them across reloads. NUM/CAT overrides and target changes recompute the same data used by the dashboard and downloadable PDF. Missing values and invalid NUM values are excluded pairwise and reported in Data Preview. Risk flags are screening heuristics, not evidence that discrimination occurred or that a low-risk dataset is fair. Group disparity means a maximum-minus-minimum binary outcome-rate gap, not the four-fifths ratio.
 
-Run the app type check and production build:
+Run the app type check and production build from the shell (managed artifact workflows supply the routing environment automatically):
 
 ```sh
 pnpm --filter @workspace/biasx run typecheck
-pnpm --filter @workspace/biasx run build
+PORT=20053 BASE_PATH=/biasx/ pnpm --filter @workspace/biasx run build
 ```
 
 Run the CSV, type-semantics, metrics, heatmap, and PDF regressions:

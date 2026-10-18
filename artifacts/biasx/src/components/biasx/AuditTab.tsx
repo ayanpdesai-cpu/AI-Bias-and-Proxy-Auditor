@@ -1,4 +1,4 @@
-import { AlertCircle, AlertTriangle, CheckCircle, Flag, Info } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle, Info } from "lucide-react";
 import { DISP_HIGH, DISP_MED, MI_HIGH, MI_MED, type AuditResult, type RiskLevel, type TargetInfo } from "@/lib/audit";
 import { getBiasReason, getMediumRiskReason } from "@/lib/knowledge";
 
@@ -21,15 +21,6 @@ export function AuditTab({ results, threshold, targetInfo, hasData }: { results:
   const noFlags = results.length > 0 && results.every(r => r.risk === "low");
   return (
     <div className="p-4 sm:p-5 space-y-3">
-      {results.length > 0 && (
-        <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 leading-relaxed">
-          <Info className="w-4 h-4 mt-0.5 shrink-0 text-slate-400" aria-hidden="true" />
-          <span>
-            Flags are statistical signals for human review. They do not prove bias, and a low-risk label does not show that a feature is fair.
-            {targetInfo?.note && <> {targetInfo.note}</>}
-          </span>
-        </div>
-      )}
       {noFlags && (
         <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl" data-testid="banner-no-flags">
           <CheckCircle className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" aria-hidden="true" />
@@ -65,20 +56,26 @@ export function AuditTab({ results, threshold, targetInfo, hasData }: { results:
               <div className="mt-2.5 space-y-1">
                 {r.triggers.map((t, i) => (
                   <p key={i} className={`text-xs leading-relaxed rounded-lg px-3 py-1.5 border ${sigColor}`}>
-                    <span className="font-semibold inline-flex items-center gap-1"><Flag className="w-3 h-3" aria-hidden="true" /> Signal {i + 1}:</span> {t}
+                    <span className="font-semibold">⚑ Signal {i + 1}:</span> {t}
                   </p>
                 ))}
               </div>
             )}
             {(r.risk === "high" || r.risk === "medium") && (
-              <div className={`text-xs leading-relaxed rounded-lg px-3 py-2 mt-1.5 border ${r.risk === "high" ? "text-red-800 bg-red-50 border-red-200" : "text-amber-800 bg-amber-50 border-amber-200"}`}>
-                <h3 className="font-semibold">Why this feature warrants further review</h3>
-                <p className="mt-0.5">{r.risk === "high" ? getBiasReason(r.name) : getMediumRiskReason(r.name)}</p>
-              </div>
+              <p className={`text-xs leading-relaxed rounded-lg px-3 py-2 mt-1.5 border ${r.risk === "high" ? "text-red-800 bg-red-50 border-red-200" : "text-amber-800 bg-amber-50 border-amber-200"}`}>
+                <span className="font-semibold">Why this feature warrants further review:</span>{" "}
+                {r.risk === "high" ? getBiasReason(r.name) : getMediumRiskReason(r.name)}
+              </p>
             )}
           </article>
         );
       })}
+      {results.length > 0 && (
+        <details className="text-xs text-gray-500 leading-relaxed">
+          <summary className="cursor-pointer font-medium">About these scores</summary>
+          <p className="mt-1">Flags are statistical signals for human review. They do not prove bias, and a low-risk label does not show that a feature is fair. {targetInfo?.note}</p>
+        </details>
+      )}
       {results.length === 0 && (
         <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800" data-testid="empty-state">
           <Info className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />

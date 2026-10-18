@@ -1,9 +1,8 @@
 import { useRef, useState } from "react";
 import { AlertTriangle, Database, FileText, RefreshCw, Upload } from "lucide-react";
 import { EXAMPLE_DATASETS } from "@/lib/examples";
-import type { ColumnType, ParsedData } from "@/lib/audit";
+import type { ParsedData } from "@/lib/audit";
 import { TargetSelect } from "./TargetSelect";
-import { TypeToggle } from "./TypeToggle";
 
 interface Props {
   data: ParsedData | null;
@@ -14,11 +13,10 @@ interface Props {
   onTarget: (c: string) => void;
   threshold: number;
   onThreshold: (t: number) => void;
-  onType: (col: string, t: ColumnType) => void;
   counts: { high: number; medium: number; low: number } | null;
 }
 
-export function Sidebar({ data, error, onFile, onExample, target, onTarget, threshold, onThreshold, onType, counts }: Props) {
+export function Sidebar({ data, error, onFile, onExample, target, onTarget, threshold, onThreshold, counts }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -93,26 +91,12 @@ export function Sidebar({ data, error, onFile, onExample, target, onTarget, thre
                 onChange={e => onThreshold(Number(e.target.value))} className="w-full accent-indigo-600 cursor-pointer" />
               <div className="flex justify-between text-xs text-gray-400 mt-0.5"><span>0.50</span><span>1.00</span></div>
             </div>
-            <div>
-              <p className="text-xs font-medium text-gray-600 mb-0.5">Column types</p>
-              <p className="text-xs text-gray-400 mb-2 leading-snug">Correct a guess and results update at once.</p>
-              <ul className="space-y-1 max-h-56 overflow-y-auto pr-1">
-                {data.columns.map(col => (
-                  <li key={col} className="flex items-center justify-between gap-2">
-                    <code className={`text-xs truncate ${col === target ? "text-indigo-600 font-bold" : "text-gray-700"}`} title={col}>{col}</code>
-                    <TypeToggle column={col} value={data.columnTypes[col]} onChange={t => onType(col, t)} />
-                  </li>
-                ))}
-              </ul>
-            </div>
           </div>
-        ) : (
-          <p className="text-xs text-gray-400 leading-relaxed">Load a dataset to choose a target and adjust column types.</p>
-        )}
+        ) : null}
       </div>
 
       {counts && (
-        <div className="px-4 pb-4 pt-4" aria-label="Risk summary">
+        <div className="px-4 pb-4 pt-2" aria-label="Risk summary">
           <div className="grid grid-cols-3 gap-2">
             <div className="bg-red-50 border border-red-100 rounded-xl p-2.5 text-center">
               <div className="text-2xl font-bold text-red-600" data-testid="count-high">{counts.high}</div>

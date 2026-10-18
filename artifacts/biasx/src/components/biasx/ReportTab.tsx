@@ -1,4 +1,4 @@
-import { CheckCircle, Download, FileDown, FileText, Flag, ListChecks } from "lucide-react";
+import { CheckCircle, Download, FileDown } from "lucide-react";
 import type { AuditResult, ParsedData, TargetInfo } from "@/lib/audit";
 
 interface Props {
@@ -46,9 +46,8 @@ export function ReportTab({ data, results, target, targetInfo, onDownload, busy,
       {data && (
         <>
           <section className="rounded-xl border border-gray-200 overflow-hidden">
-            <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5 text-gray-500" aria-hidden="true" />
-              <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wide">Executive Summary</h3>
+            <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5">
+              <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wide">📄 Executive Summary</h3>
             </div>
             <div className="p-4">
               <div className="grid grid-cols-3 gap-3 mb-4">
@@ -79,9 +78,8 @@ export function ReportTab({ data, results, target, targetInfo, onDownload, busy,
 
           {(flagged.length > 0 || medium.length > 0) && (
             <section className="rounded-xl border border-gray-200 overflow-hidden">
-              <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center gap-1.5">
-                <Flag className="w-3.5 h-3.5 text-gray-500" aria-hidden="true" />
-                <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wide">Flagged Variables</h3>
+              <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5">
+                <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wide">🚩 Flagged Variables</h3>
               </div>
               <div className="divide-y divide-gray-100">
                 {[...flagged, ...medium].map(r => (
@@ -104,9 +102,8 @@ export function ReportTab({ data, results, target, targetInfo, onDownload, busy,
 
           {recs.length > 0 && (
             <section className="rounded-xl border border-gray-200 overflow-hidden">
-              <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center gap-1.5">
-                <ListChecks className="w-3.5 h-3.5 text-gray-500" aria-hidden="true" />
-                <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wide">Recommendations</h3>
+              <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5">
+                <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wide">✅ Recommendations</h3>
               </div>
               <ol className="p-4 space-y-2.5">
                 {recs.map((rec, i) => (

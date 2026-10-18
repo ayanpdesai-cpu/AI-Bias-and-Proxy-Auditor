@@ -1,10 +1,10 @@
-import { BookOpen, ChevronDown, ChevronUp, Search, ShieldCheck, Activity, Link2, Scale, Tag } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronUp } from "lucide-react";
 
 const METHODS = [
-  { Icon: Activity, t: "Pearson Correlation", d: "Linear link between feature and outcome (numeric and binary columns)" },
-  { Icon: Link2, t: "Mutual Information", d: "Non-linear associations Pearson would miss" },
-  { Icon: Scale, t: "Group Disparity", d: "Outcome-rate gaps between groups, for binary outcomes" },
-  { Icon: Tag, t: "Protected Attribute", d: "Name matches a known sensitive field (70+ names)" },
+  { t: "📐 Pearson Correlation", d: "Linear link between feature and outcome (numeric and binary columns)" },
+  { t: "🔗 Mutual Information", d: "Non-linear associations Pearson would miss" },
+  { t: "⚖️ Group Disparity", d: "Outcome-rate gaps between groups, for binary outcomes" },
+  { t: "🏷️ Protected Attribute", d: "Name matches a known sensitive field (70+ names)" },
 ];
 
 export function ProxyInfoBanner({ open, onToggle }: { open: boolean; onToggle: () => void }) {
@@ -22,9 +22,9 @@ export function ProxyInfoBanner({ open, onToggle }: { open: boolean; onToggle: (
         {open ? <ChevronUp className="w-4 h-4 text-indigo-400 shrink-0" aria-hidden="true" /> : <ChevronDown className="w-4 h-4 text-indigo-400 shrink-0" aria-hidden="true" />}
       </button>
       {open && (
-        <div id="proxy-explainer" className="px-4 sm:px-5 pb-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div id="proxy-explainer" className="px-4 sm:px-5 pb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="bg-white rounded-xl border border-indigo-100 p-4">
-            <h2 className="text-sm font-bold text-indigo-800 mb-2 flex items-center gap-1.5"><Search className="w-4 h-4" aria-hidden="true" /> What is a Proxy Variable?</h2>
+            <h2 className="text-sm font-bold text-indigo-800 mb-2">🔍 What is a Proxy Variable?</h2>
             <p className="text-xs text-gray-600 leading-relaxed">
               A <strong>proxy variable</strong> is a dataset column that doesn't directly measure a protected characteristic — but is <em>correlated</em> with one.
             </p>
@@ -36,15 +36,14 @@ export function ProxyInfoBanner({ open, onToggle }: { open: boolean; onToggle: (
             </div>
           </div>
           <div className="bg-white rounded-xl border border-indigo-100 p-4">
-            <h2 className="text-sm font-bold text-indigo-800 mb-2 flex items-center gap-1.5"><ShieldCheck className="w-4 h-4" aria-hidden="true" /> What Does BiasX Do?</h2>
+            <h2 className="text-sm font-bold text-indigo-800 mb-2">🛡️ What Does BiasX Do?</h2>
             <p className="text-xs text-gray-600 leading-relaxed">
               BiasX scans your CSV dataset <strong>before you train a model</strong> and flags features that may carry bias or proxy signals — across <strong>all</strong> columns, numeric and categorical. Flags are prompts for human review, not proof of bias.
             </p>
             <ul className="mt-2 space-y-2">
-              {METHODS.map(({ Icon, t, d }) => (
+              {METHODS.map(({ t, d }) => (
                 <li key={t} className="text-xs text-gray-600 flex gap-2">
-                  <Icon className="w-3.5 h-3.5 mt-0.5 shrink-0 text-indigo-500" aria-hidden="true" />
-                  <span><span className="font-semibold">{t}:</span> {d}</span>
+                  <span className="font-semibold shrink-0">{t}:</span><span>{d}</span>
                 </li>
               ))}
             </ul>

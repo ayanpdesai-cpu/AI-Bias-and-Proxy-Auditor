@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
-  Activity, BarChart2, ClipboardList, FileDown, FileText, Link2, Scale, Search, Table2, Tag, Type, X,
+  BarChart2, FileDown, FileText, X,
 } from "lucide-react";
 import { auditDataset, buildData, CsvError, getTargetInfo, setColumnType, type ColumnType, type ParsedData } from "@/lib/audit";
 import { EXAMPLE_DATASETS } from "@/lib/examples";
@@ -16,18 +16,18 @@ import { CorrelationHeatmap } from "@/components/biasx/CorrelationHeatmap";
 
 type TabId = "audit" | "viz" | "report" | "preview";
 const TABS = [
-  { id: "audit", label: "Audit Results", Icon: Search },
-  { id: "viz", label: "Visualizations", Icon: BarChart2 },
-  { id: "report", label: "Download Report", Icon: ClipboardList },
-  { id: "preview", label: "Data Preview", Icon: Table2 },
+  { id: "audit", label: "🔍 Audit Results" },
+  { id: "viz", label: "📊 Visualizations" },
+  { id: "report", label: "📋 Download Report" },
+  { id: "preview", label: "🗂️ Data Preview" },
 ] as const;
 
 const CHIPS = [
-  { Icon: Activity, title: "Pearson", sub: "Linear bias" },
-  { Icon: Link2, title: "Mutual Info", sub: "Non-linear" },
-  { Icon: Scale, title: "Group Disparity", sub: "Outcome gaps" },
-  { Icon: Tag, title: "Protected Names", sub: "70+ attribute list" },
-  { Icon: Type, title: "Categorical", sub: "Non-numeric columns too" },
+  { icon: "📐", title: "Pearson", sub: "Linear bias" },
+  { icon: "🔗", title: "Mutual Info", sub: "Non-linear" },
+  { icon: "⚖️", title: "Group Disparity", sub: "Outcome gaps" },
+  { icon: "🏷️", title: "Protected Names", sub: "70+ attribute list" },
+  { icon: "🔡", title: "Categorical", sub: "Non-numeric columns too" },
 ];
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -111,20 +111,20 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-['Inter']">
       <Splash />
 
       <header className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-3 shrink-0 shadow-sm">
         <div className="flex items-center gap-2 mr-1">
           <BiasXLogo size={32} />
-          <div className="leading-none">
+          <div className="hidden sm:block leading-none">
             <span className="text-base font-extrabold tracking-tight" style={{ color: "#4f46e5" }}>Bias</span>
             <span className="text-base font-extrabold tracking-tight text-red-500">X</span>
           </div>
         </div>
         <div className="flex-1" />
         {data && (
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-xs font-medium text-emerald-700 max-w-[260px]">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 rounded-full text-xs font-medium text-emerald-700 max-w-[260px] min-w-0">
             <FileText className="w-3 h-3 shrink-0" aria-hidden="true" /><span className="truncate">{data.fileName}</span>
             <button type="button" onClick={clear} aria-label="Remove dataset" data-testid="button-clear-dataset" className="ml-1 text-emerald-500 hover:text-emerald-800"><X className="w-3 h-3" /></button>
           </div>
@@ -137,7 +137,7 @@ export default function Home() {
 
       <div className="flex flex-col md:flex-row flex-1 min-h-0">
         <Sidebar data={data} error={error} onFile={handleFile} onExample={loadExample} target={target} onTarget={setTargetCol}
-          threshold={threshold} onThreshold={setThreshold} onType={onType} counts={counts} />
+          threshold={threshold} onThreshold={setThreshold} counts={counts} />
 
         <main className="flex-1 flex flex-col min-w-0 md:overflow-auto">
           <div className="p-3 sm:p-5 space-y-4">
@@ -148,16 +148,16 @@ export default function Home() {
                   <h1 className="text-lg font-extrabold text-white tracking-tight leading-tight">
                     Bias<span className="text-red-300">X</span> — AI Bias &amp; Proxy Variable Auditor
                   </h1>
-                  <p className="text-sm text-indigo-100 mt-1 leading-relaxed">
-                    Upload your training dataset and BiasX surfaces potential bias and proxy signals across <strong className="text-white">every column</strong> — numeric and categorical — <em>before</em> you train, so you can review them early. Your data stays in this browser.
+                  <p className="text-sm text-indigo-200 mt-1 leading-relaxed">
+                    Upload your training dataset and BiasX detects hidden bias signals across <strong className="text-white">every column</strong> — numeric and categorical — <em>before</em> you train, so you ship fair AI with confidence.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {CHIPS.map(({ Icon, title, sub }) => (
+                    {CHIPS.map(({ icon, title, sub }) => (
                       <div key={title} className="flex items-center gap-1.5 bg-white/10 rounded-lg px-2.5 py-1.5">
-                        <Icon className="w-3.5 h-3.5 text-white" aria-hidden="true" />
+                        <span className="text-sm" aria-hidden="true">{icon}</span>
                         <div>
                           <p className="text-xs font-semibold text-white leading-none">{title}</p>
-                          <p className="text-xs text-indigo-200 leading-none mt-0.5">{sub}</p>
+                          <p className="text-xs text-indigo-300 leading-none mt-0.5">{sub}</p>
                         </div>
                       </div>
                     ))}
@@ -184,8 +184,8 @@ export default function Home() {
                     tabIndex={tab === t.id ? 0 : -1} data-testid={`tab-${t.id}`}
                     ref={el => { tabRefs.current[t.id] = el; }}
                     onClick={() => setTab(t.id)} onKeyDown={e => onTabKey(e, i)}
-                    className={`px-4 py-2.5 text-xs font-semibold whitespace-nowrap transition-colors border-b-2 shrink-0 inline-flex items-center gap-1.5 ${tab === t.id ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
-                    <t.Icon className="w-3.5 h-3.5" aria-hidden="true" />{t.label}
+                    className={`px-4 py-2.5 text-xs font-semibold whitespace-nowrap transition-colors border-b-2 shrink-0 ${tab === t.id ? "border-indigo-600 text-indigo-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+                    {t.label}
                   </button>
                 ))}
               </div>

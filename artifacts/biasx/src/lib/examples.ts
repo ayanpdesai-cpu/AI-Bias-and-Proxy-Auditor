@@ -12,7 +12,7 @@
 export const EXAMPLE_DATASETS = [
   {
     id: "hiring",
-    label: "Tech Hiring",
+    label: "🧑‍💻 Tech Hiring",
     desc: "Hiring decisions with demographic & geographic signals",
     fileName: "tech_hiring.csv",
     target: "approved",
@@ -51,7 +51,7 @@ export const EXAMPLE_DATASETS = [
   },
   {
     id: "loan",
-    label: "Loan Approval",
+    label: "🏦 Loan Approval",
     desc: "Loan decisions with financial and personal attributes",
     fileName: "loan_approval.csv",
     target: "loan_approved",
@@ -90,7 +90,7 @@ export const EXAMPLE_DATASETS = [
   },
   {
     id: "hospital",
-    label: "Hospital Readmission",
+    label: "🏥 Hospital Readmission",
     desc: "Healthcare readmission with protected attributes",
     fileName: "hospital_readmission.csv",
     target: "readmitted",
