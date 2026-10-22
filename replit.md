@@ -4,18 +4,17 @@ BiasX audits CSV datasets for hidden bias and proxy variables.
 
 ## Preserve the existing apps
 
-The user chose to keep the original Streamlit app and add React as a separate web app, not replace Streamlit. Do not change analysis behavior or design as part of workspace migration.
+Keep the original Streamlit app and AuditorRerun sandbox. The user requested removal of the separate BiasX Web App and its launcher; do not recreate it unless explicitly asked. Do not change the original apps' analysis behavior or design as part of cleanup.
 
-The root Python entry points stay in place so their working directories, Streamlit configuration, and publishing command remain compatible. The separate React app lives in `artifacts/biasx/` and uses `/biasx/`; it does not replace Streamlit or the design sandbox.
+The root Python entry points stay in place so their working directories, Streamlit configuration, and publishing command remain compatible.
 
 ## Run & operate
 
-Use the **Project** workflow to run all four services:
+Use the **Project** workflow to run the original three services:
 
 - `artifacts/api-server: Streamlit` — original `app.py`, port 5000, routed at `/`.
 - `artifacts/api-server: Python API` — original Flask `api.py`, port 8080, routed at `/columns` and `/run-audit`.
 - `artifacts/mockup-sandbox: Component Preview Server` — existing React mockups, port 8081, routed at `/__mockup`.
-- `artifacts/biasx: web` — publishable React app, port 20053, routed at `/biasx/`.
 
 Python services are declared in `artifacts/api-server/.replit-artifact/artifact.toml`. This manifest intentionally hosts the original Python services instead of the unused Express scaffold. The scaffold's TypeScript files and shared libraries remain available for future work; they are not required by the Python apps.
 
@@ -29,35 +28,13 @@ Keep `.replit` publishing pointed at:
 streamlit run app.py --server.port 5000 --server.address 0.0.0.0
 ```
 
-Do not redirect publishing to the mockup sandbox. The React app has its own artifact manifest and static production build; its build is `pnpm --filter @workspace/biasx run build` and its output is `artifacts/biasx/dist/public`. The Python artifact's production command runs the original Streamlit entry point from the workspace root. Publishing requires the user's later confirmation.
-
-## React app data and checks
-
-The web app starts empty and analyzes explicit example selections or CSV uploads entirely in the browser. It does not send uploaded datasets to the Python API or persist them across reloads. NUM/CAT overrides and target changes recompute the same data used by the dashboard and downloadable PDF. Missing values and invalid NUM values are excluded pairwise and reported in Data Preview. Risk flags are screening heuristics, not evidence that discrimination occurred or that a low-risk dataset is fair. Group disparity means a maximum-minus-minimum binary outcome-rate gap, not the four-fifths ratio.
-
-Run the app type check and production build from the shell (managed artifact workflows supply the routing environment automatically):
-
-```sh
-pnpm --filter @workspace/biasx run typecheck
-PORT=20053 BASE_PATH=/biasx/ pnpm --filter @workspace/biasx run build
-```
-
-Run the CSV, type-semantics, metrics, heatmap, and PDF regressions:
-
-```sh
-pnpm --filter @workspace/api-server exec esbuild ../../tests/biasx-audit.test.ts --bundle --platform=node --format=cjs --outfile=/tmp/biasx-audit.test.cjs
-node --test /tmp/biasx-audit.test.cjs
-```
+Do not redirect publishing to the mockup sandbox. The Python artifact's production command runs the original Streamlit entry point from the workspace root. Publishing requires the user's later confirmation.
 
 ## Source map
 
 - `app.py`: original Streamlit app (unchanged).
 - `main.py`: preserved alternate Python entry point.
 - `api.py`: original Flask endpoints (unchanged).
-- `artifacts/biasx/src/pages/home.tsx`: React upload, example selection, target/type controls, and dashboard state.
-- `artifacts/biasx/src/lib/audit.ts`: CSV parsing, type inference, metrics, risk classification, and full-column heatmap.
-- `artifacts/biasx/src/lib/pdf.ts`: downloadable PDF built from the current analysis results.
-- `artifacts/biasx/src/components/biasx/`: graduated dashboard, charts, controls, and 1.5-second startup splash.
 - `.streamlit/config.toml`: original Streamlit settings (unchanged).
 - `requirements.txt`: original Python dependencies plus Flask and Flask-CORS, previously installed but not declared.
 - `artifacts/mockup-sandbox/src/components/mockups/bias-auditor/`: original BiasX React mockups, including the live API-connected screen.
